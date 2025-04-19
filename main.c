@@ -47,12 +47,14 @@
  */
 
 #include <SDL2/SDL.h>
+#include <signal.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
 #include <stdatomic.h>
 #include "genetic_art.h"
+
 
 /************************* Forward decls *************************/
 static SDL_Surface *load_and_resize_bmp(const char *filename);
@@ -71,8 +73,18 @@ static int             g_pitch     = 0;   /* bytes‑per‑row for best/ref */
 static pthread_mutex_t g_best_mutex = PTHREAD_MUTEX_INITIALIZER;
 static atomic_int      g_running    = 1;   /* 0 -> stop GA thread        */
 
+// Handle Ctrl+C properly
+static void handle_sigint(int sig)
+{
+    (void)sig;
+    atomic_store(&g_running, 0);
+    fprintf(stderr, "\n[Ctrl+C] SIGINT received. Stopping GA and exiting...\n");
+}
+
 int main(int argc, char *argv[])
 {
+    signal(SIGINT, handle_sigint);  // Install Ctrl+C handler
+
     if (argc < 2) {
         fprintf(stderr, "Usage: %s <image.bmp>\n", argv[0]);
         return EXIT_FAILURE;
@@ -162,11 +174,15 @@ int main(int argc, char *argv[])
 
     /** Main event loop ---------------------------------------------------*/
     int quit = 0;
-    while (!quit) {
-        SDL_Event ev;
-        while (SDL_PollEvent(&ev)) {
-            if (ev.type == SDL_QUIT) quit = 1;
-        }
+    /* fixed to authorize ctrl+c to quit */
+	while (!quit && atomic_load(&g_running)) {
+    	SDL_Event ev;
+    	while (SDL_PollEvent(&ev)) {
+        	if (ev.type == SDL_QUIT) {
+            	atomic_store(&g_running, 0);  // stop GA if window closed
+            	quit = 1;
+        	}
+    	}
 
         /* Clear back‑buffer */
         SDL_SetRenderDrawColor(g_renderer, 0, 0, 0, 255);

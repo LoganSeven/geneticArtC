@@ -22,6 +22,9 @@
 #include <pthread.h>
 #include <stdatomic.h>
 
+#define FIT_MAX_WORKERS 8
+
+
 /* -------------------------- Fixed geometry ----------------------------- */
 #define WIDTH     1280   /* window width  ( = 2 × IMAGE_W ) */
 #define HEIGHT     480   /* window height               */
@@ -30,7 +33,7 @@
 
 /* -------------------- Genetic‑algorithm parameters -------------------- */
 #define POPULATION_SIZE  50      /* chromosomes per generation        */
-#define NB_SHAPES        50      /* genes (shapes) per chromosome     */
+#define NB_SHAPES        10      /* genes (shapes) per chromosome     */
 #define MUTATION_RATE    0.05f   /* probability gene mutates          */
 #define CROSSOVER_RATE   0.7f    /* probability we do crossover       */
 #define MAX_ITERATIONS   1000000 /* hard stop to avoid run‑aways      */
