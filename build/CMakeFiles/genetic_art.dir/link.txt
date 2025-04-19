@@ -1,0 +1,1 @@
+/usr/bin/cc CMakeFiles/genetic_art.dir/main.c.o CMakeFiles/genetic_art.dir/genetic_art.c.o -o genetic_art   -L/usr/local/lib  -Wl,-rpath,/usr/local/lib /usr/local/lib/libSDL2.so -lm 
