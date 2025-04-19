@@ -523,6 +523,19 @@ static void *fit_worker(void *arg) // function start
 /*======================================================================*/
 
 /**
+ * @brief Petit comparateur pour trier les chromosomes par fitness
+ *        (croissante). Sert à l'élitisme [ELITISM].
+ */
+static int compare_chromosome_fitness(const void *a, const void *b) // [ELITISM]
+{
+    double fa = ((const Chromosome*)a)->fitness;
+    double fb = ((const Chromosome*)b)->fitness;
+    if (fa < fb) return -1;
+    if (fa > fb) return  1;
+    return 0;
+}
+
+/**
  * @brief GA master thread function. Runs the entire GA:
  *        1) Builds a thread-pool for parallel fitness evaluation
  *        2) Initializes the population
@@ -580,7 +593,7 @@ void *ga_thread_func(void *arg) // function start
         pop[i].fitness = fitness_px(scratch, ctx->src_pixels, IMAGE_W * IMAGE_H);
     }
 
-    // Find best among the initial population
+    // Trouve le meilleur parmi la population initiale (pas forcément utile si on va trier ensuite).
     Chromosome best = pop[0];
     for (int i = 1; i < POPULATION_SIZE; ++i) {
         if (pop[i].fitness < best.fitness) {
@@ -605,8 +618,18 @@ void *ga_thread_func(void *arg) // function start
     // -------------------- 3) Main GA loop -----------------------------
     for (int iter = 1; atomic_load(ctx->running) && iter <= MAX_ITERATIONS; ++iter) {
 
+        // [ELITISM] : on trie la population actuelle par fitness (croissante).
+        // Le meilleur sera en pop[0].
+        qsort(pop, POPULATION_SIZE, sizeof(Chromosome), compare_chromosome_fitness);
+
         // 3-A: Reproduction / mutation
-        for (int i = 0; i < POPULATION_SIZE; ++i) {
+        // [ELITISM] : On recopie d'abord les ELITE_COUNT meilleurs individus dans new_pop.
+        for (int i = 0; i < ELITE_COUNT; ++i) {
+            new_pop[i] = pop[i];  // copie directe (pas de mutation, pas de crossover)
+        }
+
+        // On remplit le reste avec crossover/mutation
+        for (int i = ELITE_COUNT; i < POPULATION_SIZE; ++i) {
             // Pick two random parents
             const Chromosome *pa = &pop[rand() % POPULATION_SIZE];
             const Chromosome *pb = &pop[rand() % POPULATION_SIZE];

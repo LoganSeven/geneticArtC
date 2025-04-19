@@ -1,7 +1,3 @@
-// =============================================================
-// >>>>>>>>>>>>>>>>>>>>>>  genetic_art.h  <<<<<<<<<<<<<<<<<<<<<<
-// =============================================================
-
 /**
  * @file   genetic_art.h
  * @brief  Public API for the genetic‑algorithm renderer.
@@ -32,11 +28,18 @@
 #define IMAGE_H    480
 
 /* -------------------- Genetic‑algorithm parameters -------------------- */
-#define POPULATION_SIZE  50      /* chromosomes per generation        */
-#define NB_SHAPES        10      /* genes (shapes) per chromosome     */
+#define POPULATION_SIZE  500      /* chromosomes per generation        */
+#define NB_SHAPES        100      /* genes (shapes) per chromosome     */
 #define MUTATION_RATE    0.05f   /* probability gene mutates          */
 #define CROSSOVER_RATE   0.7f    /* probability we do crossover       */
 #define MAX_ITERATIONS   1000000 /* hard stop to avoid run‑aways      */
+
+/**
+ * @brief [ELITISM] Number of "untouchable" individuals that are copied as is.
+ *        This prevents losing the best individuals due to a bad draw.
+ */
+
+#define ELITE_COUNT 2  // [ELITISM] a new paramater to adjust ;)
 
 /* -------------------------- Gene definitions -------------------------- */
 typedef enum {
