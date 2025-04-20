@@ -104,3 +104,5 @@ This part of the project is open-source and available under the MIT License.
 ## Credits
 
 Created by Logan7 - powered by C, SDL2 and evolutionary chaos.
+
+👉 See the [TODO list](./TODO.md) for planned features and ongoing work.
