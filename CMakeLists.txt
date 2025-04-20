@@ -27,6 +27,7 @@ find_package(Threads REQUIRED)  # Pthreads
 add_executable(genetic_art
     main.c
     genetic_art.c
+    genetic_structs.c
 )
 
 # ------------------ Linking -----------------------------------------

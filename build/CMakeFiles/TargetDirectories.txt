@@ -1,3 +1,0 @@
-/home/react/Desktop/geneticArtC/build/CMakeFiles/genetic_art.dir
-/home/react/Desktop/geneticArtC/build/CMakeFiles/edit_cache.dir
-/home/react/Desktop/geneticArtC/build/CMakeFiles/rebuild_cache.dir
