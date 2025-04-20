@@ -1,14 +1,10 @@
-// =============================================================
-// >>>>>>>>>>>>>>>>>>>>>>  genetic_art.c  <<<<<<<<<<<<<<<<<<<<<<
-// =============================================================
-
-/**
- * @file   genetic_art.c
- * @brief  GA core with a more optimized fitness function (AVX2 optional).
+/***************************************************************
+ *  genetic_art.c
+ *  GA core with a more optimized fitness function (AVX2 optional).
  *
- * This file is part of the open-source "Genetic Art C11 + SDL2"
- * demonstrator. Released under the MIT License.
- */
+ *  This file is part of the open-source "Genetic Art C11 + SDL2"
+ *  demonstrator. Released under the MIT License.
+ **************************************************************/
 
  #include "genetic_art.h"   // Must come first so GAParams, Chromosome, etc. are known
  #include <math.h>          // For sqrtf(), etc.
@@ -64,16 +60,16 @@
   */
  static Uint32 alpha_blend(Uint32 dst, Uint32 src, const SDL_PixelFormat *fmt) // function start
  {
-     Uint8 sr, sg, sb, sa;                  // source channels
-     SDL_GetRGBA(src, fmt, &sr, &sg, &sb, &sa); // extract source RGBA
+     Uint8 sr, sg, sb, sa;                        // source channels
+     SDL_GetRGBA(src, fmt, &sr, &sg, &sb, &sa);   // extract source RGBA
  
-     Uint8 dr, dg, db, da;                  // destination channels
-     SDL_GetRGBA(dst, fmt, &dr, &dg, &db, &da); // extract destination RGBA
+     Uint8 dr, dg, db, da;                        // destination channels
+     SDL_GetRGBA(dst, fmt, &dr, &dg, &db, &da);   // extract destination RGBA
  
-     const float a = sa / 255.0f;           // alpha as [0..1]
-     Uint8 rr = (Uint8)(sr * a + dr * (1.0f - a));  // blend R
-     Uint8 rg = (Uint8)(sg * a + dg * (1.0f - a));  // blend G
-     Uint8 rb = (Uint8)(sb * a + db * (1.0f - a));  // blend B
+     const float a = sa / 255.0f;                 // alpha as [0..1]
+     Uint8 rr = (Uint8)(sr * a + dr * (1.0f - a)); // blend R
+     Uint8 rg = (Uint8)(sg * a + dg * (1.0f - a)); // blend G
+     Uint8 rb = (Uint8)(sb * a + db * (1.0f - a)); // blend B
  
      // Return the new ARGB color with full alpha = 255
      return SDL_MapRGBA(fmt, rr, rg, rb, 255);
@@ -186,9 +182,7 @@
  
          // Ensure xa <= xb
          if (xa > xb) {
-             float t = xa;
-             xa = xb;
-             xb = t;
+             float t = xa; xa = xb; xb = t;
          }
  
          // Convert to integer range and clamp in [0, IMAGE_W - 1]
@@ -445,7 +439,7 @@
  
          // sum = dR^2 + dG^2 + dB^2
          __m256 sum = _mm256_fmadd_ps(dR, dR,
-                         _mm256_fmadd_ps(dG, dG, _mm256_mul_ps(dB, dB)));
+                          _mm256_fmadd_ps(dG, dG, _mm256_mul_ps(dB, dB)));
  
          // Split the 256-bit float vector into two 128-bit lanes
          // and accumulate into the double accumulator 'acc'
@@ -536,18 +530,34 @@
      Uint32 *scratch = malloc(IMAGE_W * IMAGE_H * sizeof(Uint32)); // intermediate buffer
      if (!scratch) return NULL; // if out of memory, exit
  
-     while (1) {
-         pthread_barrier_wait(t->bar);   // Wait for "GO"
-         if (!atomic_load(t->running)) break; // Stop if not running
+     while (1)
+     {
+         // Wait for "GO" barrier from GA master
+         pthread_barrier_wait(t->bar);
  
-         // For each chromosome in [t->first, t->last), render & compute fitness
+         // **IMPORTANT FIX**: We now always do the second barrier wait 
+         // (the "DONE" phase) even if running=0. This ensures symmetrical usage.
+         if (!atomic_load(t->running))
+         {
+             // Do NOT break immediately. We must still do the "DONE" barrier:
+             pthread_barrier_wait(t->bar);
+             break;
+         }
+ 
+         // Evaluate assigned slice of population
          for (int i = t->first; i < t->last; ++i) {
              Chromosome *c = g_eval_pop[i];
              render_chrom(c, scratch, t->pitch, t->fmt);
              c->fitness = fitness_px(scratch, t->ref, IMAGE_W * IMAGE_H);
          }
-         pthread_barrier_wait(t->bar);   // Signal "DONE"
+ 
+         // Signal "DONE"
+         pthread_barrier_wait(t->bar);
+ 
+         // If running=0 after "DONE", we exit next iteration or break here 
+         // as needed. We'll check it at the top on the next loop pass.
      }
+ 
      free(scratch);
      return NULL;
  } // function end
@@ -738,8 +748,8 @@
  
          // 3-B: Parallel fitness evaluation of new_pop
          g_eval_pop = new_pop;        // tell workers which population to evaluate
-         pthread_barrier_wait(&bar);  // release workers
-         pthread_barrier_wait(&bar);  // wait until they complete
+         pthread_barrier_wait(&bar);  // release workers ("GO")
+         pthread_barrier_wait(&bar);  // wait until they complete ("DONE")
  
          // Now new_pop[] each has an updated fitness
          // 3-C: Check if a new best was found
@@ -780,8 +790,10 @@
  
      // -------------------- 4) Graceful shutdown -------------------------
      atomic_store(ctx->running, 0);     // signal threads to exit
-     pthread_barrier_wait(&bar);        // wake workers so they exit loop
-     pthread_barrier_wait(&bar);
+ 
+     // Important: We must do TWO barrier waits again (symmetric to the workers)
+     pthread_barrier_wait(&bar);       // "GO" barrier
+     pthread_barrier_wait(&bar);       // "DONE" barrier
  
      // Join all worker threads
      for (int k = 0; k < N; ++k) {
