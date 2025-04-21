@@ -31,8 +31,15 @@ extern "C" {
 #define HEIGHT     480   /* window height                    */
 #define IMAGE_W    640
 #define IMAGE_H    480
-/*--------------thread workers --------------*/
-#define FIT_MAX_WORKERS 8
+
+/*--------------thread workers & Island Model config --------------*/
+#define FIT_MAX_WORKERS    8
+
+/*  STEP 0: Add new Island Model macros  */
+#define ISLAND_COUNT       4    /* default # of islands (and threads) */
+#define MIGRATION_INTERVAL 5    /* generations between migrations     */
+#define MIGRANTS_PER_ISL   1    /* #elite copies exchanged            */
+
 /* ----------------------------------------------------------------------
  * GAContext — shared, *read‑only* after initialisation except where
  * explicitly documented.  The GUI thread owns the struct and must keep
@@ -62,6 +69,20 @@ typedef struct GAContext {
  *        lifetime.
  */
 void *ga_thread_func(void *arg);
+
+/**
+ * @brief Deep-copies the genome of a Chromosome into another.
+ *
+ * This function copies the array of Gene from `src` to `dst` in-place.
+ * Both chromosomes must already be allocated and must have the same `n_shapes`.
+ * It does **not** reallocate memory or clone the Chromosome itself, only the
+ * internal Gene array is overwritten.
+ *
+ * @param dst Pointer to the destination Chromosome (already allocated).
+ * @param src Pointer to the source Chromosome whose genes will be copied.
+ */
+ void copy_chromosome(Chromosome *dst, const Chromosome *src);
+
 
 #ifdef __cplusplus
 } /* extern "C" */

@@ -1,9 +1,11 @@
-// genetic_structs.c
+// =============================================================
+// >>>>>>>>>>>>>>>>>>  genetic_structs.c  <<<<<<<<<<<<<<<<<<<<<<
+// =============================================================
 #include "genetic_structs.h"
 #include <stdlib.h>
 #include <math.h>  // for INFINITY
+#include <string.h> // for memcpy()
 
-// A minimal implementation:
 Chromosome *chromosome_create(size_t n_shapes)
 {
     Chromosome *c = (Chromosome*)malloc(sizeof(Chromosome));
@@ -24,4 +26,18 @@ void chromosome_destroy(Chromosome *c)
     if (!c) return;  // guard
     free(c->shapes);
     free(c);
+}
+
+/**
+ * @brief  STEP 6: Deep‑copy chromosome genome (same n_shapes).
+ *
+ * Copies shape data from src to dst, assuming both have
+ * the same n_shapes. Overwrites dst->shapes in place.
+ */
+void copy_chromosome(Chromosome *dst, const Chromosome *src)
+{
+    if (!dst || !src) return;
+    if (dst->n_shapes != src->n_shapes) return; /* assume same length? */
+    memcpy(dst->shapes, src->shapes, src->n_shapes * sizeof(Gene));
+    // fitness not automatically copied here (the caller can do it if needed).
 }
