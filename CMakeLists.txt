@@ -23,6 +23,14 @@ endif()
 find_package(SDL2 REQUIRED)     # This should define SDL2::SDL2 (+ optional SDL2::SDL2main on Windows)
 find_package(Threads REQUIRED)  # Pthreads
 
+# ------------------ Include directories ---------------------------
+include_directories(
+    ${SDL2_INCLUDE_DIRS}                  # From find_package(SDL2)
+    ${CMAKE_SOURCE_DIR}/includes          # Project headers
+    ${CMAKE_SOURCE_DIR}/includes/Nuklear  # Nuklear single-header directory
+    ${CMAKE_SOURCE_DIR}/includes/SDL      # Local SDL2 headers (optional)
+)
+
 # ------------------ Our executable ----------------------------------
 add_executable(genetic_art
     main.c
@@ -48,6 +56,14 @@ else()
     # On Unix-like systems, math library is usually separate
     target_link_libraries(genetic_art PRIVATE m)
 endif()
+
+# ------------------ Optional Nuklear definitions --------------------
+# Enable only if required by your build of Nuklear
+# target_compile_definitions(genetic_art PRIVATE NK_INCLUDE_FIXED_TYPES)
+# target_compile_definitions(genetic_art PRIVATE NK_INCLUDE_DEFAULT_ALLOCATOR)
+# target_compile_definitions(genetic_art PRIVATE NK_INCLUDE_VERTEX_BUFFER_OUTPUT)
+# target_compile_definitions(genetic_art PRIVATE NK_INCLUDE_FONT_BAKING)
+# target_compile_definitions(genetic_art PRIVATE NK_INCLUDE_DEFAULT_FONT)
 
 # ------------------ Notes -------------------------------------------
 # 1) If you're using older SDL2 CMake modules, you might need:
