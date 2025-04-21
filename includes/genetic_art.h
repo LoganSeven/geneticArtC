@@ -15,7 +15,7 @@ extern "C" {
 /* IMPORTANT: Ensure we include genetic_structs.h first
  * so that GAParams is defined before we use it below.
  */
-#include "genetic_structs.h"
+#include "./genetic_structs.h"
 
 #include <SDL2/SDL.h>
 #include <pthread.h>

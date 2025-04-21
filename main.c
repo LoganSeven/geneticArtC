@@ -29,7 +29,7 @@
 #include <time.h>
 #include <stdatomic.h>
 
-#include "genetic_art.h"  // Includes "genetic_structs.h" internally
+#include "./includes/genetic_art.h"  // Includes "genetic_structs.h" internally
 
 /**
  * @file   main.c

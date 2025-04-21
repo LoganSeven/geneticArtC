@@ -6,7 +6,7 @@
  *  demonstrator. Released under the MIT License.
  **************************************************************/
 
- #include "genetic_art.h"   // Must come first so GAParams, Chromosome, etc. are known
+ #include "./includes/genetic_art.h"   // Must come first so GAParams, Chromosome, etc. are known
  #include <math.h>          // For sqrtf(), etc.
  #include <stdlib.h>        // For rand(), malloc(), free(), etc.
  #include <string.h>        // For memset(), memcpy(), etc.
