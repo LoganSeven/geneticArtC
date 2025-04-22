@@ -11,7 +11,7 @@
 // The code base is split into three units:
 //   • main.c          — program entry, SDL2 window / texture logic
 //   • genetic_art.h   — public interface shared by main & GA core
-//   • genetic_art.c   — GA engine, shapes rasteriser & worker thread
+//   • genetic_art.c   — GA engine, shapes rasterizer & worker thread
 //
 // The goal of this code is not to demonstrate rasterization tricks nor
 // to build a graphic library. SDL is well known, the footprint is
