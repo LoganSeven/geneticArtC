@@ -71,13 +71,7 @@ elseif(UNIX AND NOT APPLE)
     target_link_libraries(genetic_art PRIVATE m)
 endif()
 
-# ------------------ Optional Nuklear definitions --------------------
-# Uncomment these if required by your Nuklear config:
-# target_compile_definitions(genetic_art PRIVATE NK_INCLUDE_FIXED_TYPES)
-# target_compile_definitions(genetic_art PRIVATE NK_INCLUDE_DEFAULT_ALLOCATOR)
-# target_compile_definitions(genetic_art PRIVATE NK_INCLUDE_VERTEX_BUFFER_OUTPUT)
-# target_compile_definitions(genetic_art PRIVATE NK_INCLUDE_FONT_BAKING)
-# target_compile_definitions(genetic_art PRIVATE NK_INCLUDE_DEFAULT_FONT)
+
 
 # ------------------ Final Summary -----------------------------------
 message(STATUS "✅ Build setup complete.")

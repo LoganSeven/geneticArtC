@@ -29,7 +29,7 @@
  #define NK_INCLUDE_FONT_BAKING
  #define NK_INCLUDE_DEFAULT_FONT
  #include "../includes/Nuklear/nuklear.h"
-
+ 
  #include <SDL2/SDL.h>
  #include <signal.h>
  #include <pthread.h>
@@ -37,6 +37,7 @@
  #include <stdlib.h>
  #include <time.h>
  #include <stdatomic.h>
+ #include <stdint.h>  
  #include <unistd.h> /* for sysconf() and access() */
  
  #if defined(__APPLE__)
@@ -47,6 +48,9 @@
  
  #include "../includes/genetic_art.h"   /* Also includes "genetic_structs.h" internally */
  #include "../includes/nuklear_sdl_renderer.h"
+ 
+ /* Added for embedded font data */
+ #include "../includes/embedded_font.h"
  
  /*************************  Constants & Macros  *************************/
  
@@ -97,13 +101,14 @@
   * --------------------------------------------------------------------*/
  void logStr(const char *msg, struct nk_color col)
  {
-     pthread_mutex_lock(&g_log_mutex);
-     if (g_log_count < LOG_MAX_LINES) {
-         snprintf(g_log_text[g_log_count], LOG_LINE_LEN, "%s", msg);
-         g_log_color[g_log_count] = col;
-         g_log_count++;
-     }
-     pthread_mutex_unlock(&g_log_mutex);
+      pthread_mutex_lock(&g_log_mutex);
+      if (g_log_count < LOG_MAX_LINES) {
+          snprintf(g_log_text[g_log_count], LOG_LINE_LEN, "%s", msg);
+          g_log_color[g_log_count] = col;
+          g_log_count++;
+          printf("[logStr called] msg='%s' (count=%d)\n", msg, g_log_count);
+      }
+      pthread_mutex_unlock(&g_log_mutex);
  }
  
  /************************* Forward decls *************************/
@@ -118,9 +123,10 @@
      fprintf(stderr, "\n[Ctrl+C] SIGINT received. Stopping GA and exiting...\n");
  }
  
+
  int main(int argc, char *argv[])
  {
-     /* Intercept Ctrl+C so we can gracefully exit */
+     /* Intercept Ctrl+C so I can gracefully exit */
      signal(SIGINT, handle_sigint);
  
      /* Check arguments for reference image path */
@@ -160,37 +166,78 @@
          goto cleanup_renderer;
      }
  
-     /* ---------------------------------------------------------------------
-        Added custom font loading block:
-        We check if the TTF file exists. If it does, load it into Nuklear’s
-        font atlas. If loading fails or it is not found, we skip to default.
-        ---------------------------------------------------------------------*/
+    ///* ---------------------------------------------------------------------
+    //   Embedded font loading block:
+    //   I load the TTF from memory using the embedded array from embedded_font.h.
+    //   If that fails, I fall back to the default font.
+    //   ---------------------------------------------------------------------*/
+    //{
+    //    struct nk_font_atlas *atlas;
+    //    nk_sdl_font_stash_begin(&atlas);
+ 
+    //    struct nk_font *my_font = nk_font_atlas_add_from_memory(
+    //        atlas,
+    //        (void*)amiga4ever_ttf,
+    //        (nk_size)amiga4ever_ttf_len,
+    //        14.0f,
+    //        NULL
+    //    );
+ 
+    //    if (my_font) {
+    //        /* If loaded OK, let’s set it as default */
+    //        fprintf(stderr, "[DEBUG] Embedded TTF loaded successfully.\n");
+    //        atlas->default_font = my_font;
+    //    } else {
+    //        fprintf(stderr, "[DEBUG] Embedded TTF load failed.\n");
+    //    }
+ 
+    //    if (!my_font) {
+    //        /* Try fallback if embed fails */
+    //        my_font = nk_font_atlas_add_default(atlas, 13.0f, NULL);
+    //        if (my_font) {
+    //            fprintf(stderr, "[DEBUG] Nuklear default font assigned.\n");
+    //            atlas->default_font = my_font;
+    //        } else {
+    //            fprintf(stderr, "[DEBUG] Even default font failed!\n");
+    //        }
+    //    }
+ 
+    //    /* Finalize the font atlas */
+    //    nk_sdl_font_stash_end();
+ 
+    //    /* 
+    //     * [FIX] We re-introduce nk_style_set_font(...) here, referencing the
+    //     * handle inside the font atlas, so we have a valid width callback.
+    //     * This ensures that ctx->style.font->width is non-null.
+    //     */
+    //    if (my_font) {
+    //        /* NEW: force usage of the baked font to avoid assertion. */
+    //        nk_style_set_font(g_nk, &my_font->handle);
+    //    }
+ 
+    //    fprintf(stdout, "[DEBUG] we are after nk_sdl_font_stash_end\n");
+    //}
+     /* End of embedded font loading block */
+
      {
-         const char *font_path = "../assets/fonts/TopazPlus_a500_v1.0.ttf";
-         if (access(font_path, F_OK) == 0) {
-             /* The file exists, so attempt to load it */
-             struct nk_font_atlas *atlas = NULL;
-             nk_sdl_font_stash_begin(&atlas);
-             /* You can adjust the font size below as desired */
-             struct nk_font *my_font = nk_font_atlas_add_from_file(
-                 atlas, font_path, 14.0f, NULL);
-             nk_sdl_font_stash_end();
-             if (my_font) {
-                 nk_style_set_font(g_nk, &my_font->handle);
-             } else {
-                 logStr("Warning: failed to load custom font, falling back.", nk_rgb(255,200,200));
-             }
-         } else {
-             /* If the font does not exist, we log a note and continue */
-             logStr("Info: custom font not found, using default.", nk_rgb(255,200,200));
-         }
-     }
-     /* End of custom font loading block */
+        struct nk_font_atlas *atlas;
+        nk_sdl_font_stash_begin(&atlas);
+    
+        // Force la font par défaut (celle compilée avec Nuklear)
+        struct nk_font *my_font = nk_font_atlas_add_default(atlas, 13.0f, NULL);
+        atlas->default_font = my_font;
+    
+        nk_sdl_font_stash_end();
+        nk_style_set_font(g_nk, &my_font->handle);
+        fprintf(stderr, "[FONT] width callback pointer = %p\n", (void*)g_nk->style.font->width);
+        fprintf(stderr, "[DEBUG] Default Nuklear font assigned.\n");
+    }
+    
  
      /* 3. Load & center the reference bitmap -------------------------------*/
      SDL_Surface *surf = load_and_resize_bmp(argv[1]);
      if (!surf) goto cleanup_nuklear;
- 
+     fprintf(stdout, "[DEBUG] surf is ok\n");
      g_fmt   = SDL_AllocFormat(surf->format->format);
      g_pitch = IMAGE_W * (int)sizeof(Uint32);
  
@@ -235,7 +282,7 @@
          .nb_shapes       = 100,     /* genes (shapes) per chromosome     */
          .elite_count     = 2,       /* # individuals copied verbatim     */
          .mutation_rate   = 0.05f,   /* probability gene mutates          */
-         .crossover_rate  = 0.70f,   /* probability we do crossover       */
+         .crossover_rate  = 0.70f,   /* probability I do crossover        */
          .max_iterations  = 1000000  /* hard stop to avoid runaways       */
      };
  
@@ -248,9 +295,10 @@
          .best_mutex  = &g_best_mutex,
          .running     = &g_running
      };
- 
-     /* 6. Start-up self-test (CPU SIMD, threads, openCL) ------------------*/
+     fprintf(stdout, "[DEBUG] we are before do_startup_selftest\n");
+     /* 6. Start-up selftest (CPU SIMD, threads, openCL) ------------------*/
      do_startup_selftest();
+     logStr("Welcome to GA Art!", nk_rgb(255,255,0));
  
      /* 7. Launch the GA thread --------------------------------------------*/
      pthread_t ga_tid;
@@ -264,9 +312,13 @@
            plus bottom half = Nuklear GUI (log + future widgets area).
         --------------------------------------------------------------------*/
      int quit = 0;
+     fprintf(stdout, "[DEBUG] entering main loop\n");
+ 
      while (!quit && atomic_load(&g_running)) {
          SDL_Event ev;
- 
+        // FIX: re-bind font every frame
+        if (g_nk->style.font)
+            nk_style_set_font(g_nk, g_nk->style.font);
          /* Input begin for Nuklear */
          nk_input_begin(g_nk);
          while (SDL_PollEvent(&ev)) {
@@ -279,7 +331,6 @@
              }
          }
          nk_input_end(g_nk);
- 
          /* Clear screen */
          SDL_SetRenderDrawColor(g_renderer, 0, 0, 0, 255);
          SDL_RenderClear(g_renderer);
@@ -296,26 +347,34 @@
          SDL_Rect dst_best = { IMAGE_W, 0, IMAGE_W, IMAGE_H };
          SDL_RenderCopy(g_renderer, g_best_tex, NULL, &dst_best);
  
-         /* ----------------------------------------------------------------
-            Nuklear UI (bottom half)
-            ----------------------------------------------------------------*/
-         /* bottom-left: scrollable text log */
-         {
-             struct nk_rect bounds = nk_rect(0, 480, 640, 480);
-             if (nk_begin(g_nk, "Log", bounds,
-                          NK_WINDOW_BORDER|NK_WINDOW_SCROLL_AUTO_HIDE|NK_WINDOW_TITLE))
-             {
-                 nk_layout_row_dynamic(g_nk, 18, 1);
-                 pthread_mutex_lock(&g_log_mutex);
-                 for (int i = 0; i < g_log_count; i++) {
-                     nk_text_colored(g_nk, g_log_text[i],
-                                     (int)strlen(g_log_text[i]),
-                                     NK_TEXT_LEFT, g_log_color[i]);
-                 }
-                 pthread_mutex_unlock(&g_log_mutex);
-             }
-             nk_end(g_nk);
-         }
+        /* ----------------------------------------------------------------
+           Nuklear UI (bottom half)
+           ----------------------------------------------------------------*/
+
+        /* Patch: Rebind font every frame to avoid width=NULL issue */
+        if (g_nk->style.font) {
+            nk_style_set_font(g_nk, g_nk->style.font);
+            //fprintf(stderr, "[font] width callback ptr = %p\n", (void*)g_nk->style.font->width); the call back is ok no need to show it
+        }
+
+        /* bottom-left: scrollable text log */
+        {
+            struct nk_rect bounds = nk_rect(0, 480, 640, 480);
+            if (nk_begin(g_nk, "Log", bounds,
+                         NK_WINDOW_BORDER|NK_WINDOW_SCROLL_AUTO_HIDE|NK_WINDOW_TITLE))
+            {
+                nk_layout_row_dynamic(g_nk, 18, 1);
+                pthread_mutex_lock(&g_log_mutex);
+                for (int i = 0; i < g_log_count; i++) {
+                    nk_text_colored(g_nk, g_log_text[i],
+                                    (int)strlen(g_log_text[i]),
+                                    NK_TEXT_LEFT, g_log_color[i]);
+                }
+                pthread_mutex_unlock(&g_log_mutex);
+            }
+            nk_end(g_nk);
+        }
+
  
          /* bottom-right: free area for future widgets */
          {
@@ -333,7 +392,7 @@
          nk_sdl_render(NK_ANTI_ALIASING_ON);
  
          SDL_RenderPresent(g_renderer);
- 
+         nk_clear(g_nk);
          /* Some modest pacing to avoid busy-loop (optional) */
          SDL_Delay(10);
      }
@@ -404,7 +463,7 @@
      SDL_Rect dst = {
          (IMAGE_W - new_w) / 2,
          (IMAGE_H - new_h) / 2,
-         new_w, 
+         new_w,
          new_h
      };
      SDL_BlitSurface(tmp, NULL, final, &dst);
@@ -420,7 +479,6 @@
   * ----------------------------------------------------------------------*/
  static void do_startup_selftest(void)
  {
-     /* CPU SIMD detection (GCC/Clang builtin) */
  #if defined(__GNUC__) || defined(__clang__)
      if (__builtin_cpu_supports("sse"))  logStr("SSE : ok", nk_rgb(180,255,180));
      else                                logStr("SSE : na", nk_rgb(255,200,200));
@@ -431,13 +489,11 @@
      if (__builtin_cpu_supports("avx2")) logStr("AVX2: ok", nk_rgb(180,255,180));
      else                                logStr("AVX2: na", nk_rgb(255,200,200));
  #else
-     /* fallback for MSVC or other compilers */
      logStr("SSE : unknown", nk_rgb(255,255,0));
      logStr("AVX : unknown", nk_rgb(255,255,0));
      logStr("AVX2: unknown", nk_rgb(255,255,0));
  #endif
  
-     /* Number of CPU cores/threads */
      long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
      {
          char tmp[64];
@@ -445,7 +501,6 @@
          logStr(tmp, nk_rgb(180,255,180));
      }
  
-     /* Check if there's an OpenCL‑capable GPU */
  #if (defined(__APPLE__) || defined(HAVE_OPENCL))
      {
          cl_uint plat_count = 0;
@@ -453,7 +508,7 @@
          if (err != CL_SUCCESS || plat_count == 0) {
              logStr("OpenCL GPU check: no platform found", nk_rgb(255,200,200));
          } else {
-             cl_platform_id *plats = (cl_platform_id*)malloc(sizeof(cl_platform_id) * plat_count);
+             cl_platform_id *plats = (cl_platform_id*)malloc(sizeof(cl_platform_id)*plat_count);
              clGetPlatformIDs(plat_count, plats, NULL);
              int found_gpu = 0;
              for (cl_uint i = 0; i < plat_count; i++) {
