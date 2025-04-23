@@ -6,7 +6,7 @@
  *  demonstrator. Released under the MIT License.
  **************************************************************/
 
- #include "./includes/genetic_art.h"   // Must come first so GAParams, Chromosome, etc. are known
+ #include "../includes/genetic_art.h"   // Must come first so GAParams, Chromosome, etc. are known
  #include <math.h>          // For sqrtf(), etc.
  #include <stdlib.h>        // For rand(), malloc(), free(), etc.
  #include <string.h>        // For memset(), memcpy(), etc.
@@ -45,11 +45,10 @@
   *
   * Each pixel row is pitch bytes, but 4 bytes per Uint32 in ARGB8888.
   */
- static inline void put_px(Uint32 *px, int pitch, int x, int y, Uint32 c)  // function start
+ static inline void put_px(Uint32 *px, int pitch, int x, int y, Uint32 c)  
  {
      px[y * (pitch / 4) + x] = c;  // store the color into the row-major buffer
- }                                                                      // function end
- 
+ }                                                                      
  /**
   * @brief  Performs alpha blending of a source ARGB pixel onto a destination ARGB pixel.
   *
@@ -899,4 +898,3 @@
  
      return NULL;
  } // function end
- 

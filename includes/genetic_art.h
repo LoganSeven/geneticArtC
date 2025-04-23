@@ -12,11 +12,8 @@
 extern "C" {
 #endif
 
-/* IMPORTANT: Ensure we include genetic_structs.h first
- * so that GAParams is defined before we use it below.
- */
-#include "./genetic_structs.h"
 
+#include "./genetic_structs.h"
 #include <SDL2/SDL.h>
 #include <pthread.h>
 #include <stdatomic.h>
@@ -24,11 +21,11 @@ extern "C" {
 /* -------------------------- Fixed GUI geometry -------------------------
  * These macros are kept here because the SDL demo still assumes a
  * 640×480 reference image and shows the candidate on the right.
- * They can move to a GUI‑specific header later if you want the GA core
+ * They will move to a GUI‑specific header later because I want the GA core
  * to be 100 % display‑agnostic.
  */
 #define WIDTH     1280   /* window width  ( = 2 × IMAGE_W ) */
-#define HEIGHT     480   /* window height                    */
+#define HEIGHT     960   /* << CHANGED from 480 to 960 for new GUI area */
 #define IMAGE_W    640
 #define IMAGE_H    480
 
@@ -73,8 +70,8 @@ void *ga_thread_func(void *arg);
 /**
  * @brief Deep-copies the genome of a Chromosome into another.
  *
- * This function copies the array of Gene from `src` to `dst` in-place.
- * Both chromosomes must already be allocated and must have the same `n_shapes`.
+ * This function copies the array of Gene from src to dst in-place.
+ * Both chromosomes must already be allocated and must have the same n_shapes.
  * It does **not** reallocate memory or clone the Chromosome itself, only the
  * internal Gene array is overwritten.
  *

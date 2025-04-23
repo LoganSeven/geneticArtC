@@ -1,13 +1,13 @@
 cmake_minimum_required(VERSION 3.10)
 
 # ------------------ Project setup ---------------------------------
-project(GeneticArt VERSION 1.0.0 LANGUAGES C)
+project(GeneticArt VERSION 0.0.1 LANGUAGES C)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
-# Default to Release if not specified
+# Default to Debug if not specified
 if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Build type" FORCE)
+    set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Build type (Debug or Release)" FORCE)
 endif()
 
 message(STATUS "⛏️  Build type: ${CMAKE_BUILD_TYPE}")
@@ -51,9 +51,11 @@ include_directories(
 
 # ------------------ Executable -------------------------------------
 add_executable(genetic_art
-    main.c
-    genetic_art.c
-    genetic_structs.c
+    ${CMAKE_SOURCE_DIR}/src/main.c
+    ${CMAKE_SOURCE_DIR}/src/genetic_art.c
+    ${CMAKE_SOURCE_DIR}/src/genetic_structs.c
+    ${CMAKE_SOURCE_DIR}/src/nuklear.c
+    ${CMAKE_SOURCE_DIR}/src/nuklear_sdl_renderer.c
 )
 
 # ------------------ Linking -----------------------------------------

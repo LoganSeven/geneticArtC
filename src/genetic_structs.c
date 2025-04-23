@@ -1,7 +1,7 @@
 // =============================================================
 // >>>>>>>>>>>>>>>>>>  genetic_structs.c  <<<<<<<<<<<<<<<<<<<<<<
 // =============================================================
-#include "./includes/genetic_structs.h"
+#include "../includes/genetic_structs.h"
 #include <stdlib.h>
 #include <math.h>  // for INFINITY
 #include <string.h> // for memcpy()
