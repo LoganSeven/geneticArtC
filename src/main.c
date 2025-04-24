@@ -171,67 +171,69 @@
     //   I load the TTF from memory using the embedded array from embedded_font.h.
     //   If that fails, I fall back to the default font.
     //   ---------------------------------------------------------------------*/
-    //{
-    //    struct nk_font_atlas *atlas;
-    //    nk_sdl_font_stash_begin(&atlas);
- 
-    //    struct nk_font *my_font = nk_font_atlas_add_from_memory(
-    //        atlas,
-    //        (void*)amiga4ever_ttf,
-    //        (nk_size)amiga4ever_ttf_len,
-    //        14.0f,
-    //        NULL
-    //    );
- 
-    //    if (my_font) {
-    //        /* If loaded OK, let’s set it as default */
-    //        fprintf(stderr, "[DEBUG] Embedded TTF loaded successfully.\n");
-    //        atlas->default_font = my_font;
-    //    } else {
-    //        fprintf(stderr, "[DEBUG] Embedded TTF load failed.\n");
-    //    }
- 
-    //    if (!my_font) {
-    //        /* Try fallback if embed fails */
-    //        my_font = nk_font_atlas_add_default(atlas, 13.0f, NULL);
-    //        if (my_font) {
-    //            fprintf(stderr, "[DEBUG] Nuklear default font assigned.\n");
-    //            atlas->default_font = my_font;
-    //        } else {
-    //            fprintf(stderr, "[DEBUG] Even default font failed!\n");
-    //        }
-    //    }
- 
-    //    /* Finalize the font atlas */
-    //    nk_sdl_font_stash_end();
- 
-    //    /* 
-    //     * [FIX] We re-introduce nk_style_set_font(...) here, referencing the
-    //     * handle inside the font atlas, so we have a valid width callback.
-    //     * This ensures that ctx->style.font->width is non-null.
-    //     */
-    //    if (my_font) {
-    //        /* NEW: force usage of the baked font to avoid assertion. */
-    //        nk_style_set_font(g_nk, &my_font->handle);
-    //    }
- 
-    //    fprintf(stdout, "[DEBUG] we are after nk_sdl_font_stash_end\n");
-    //}
-     /* End of embedded font loading block */
-
-     {
+     //DO NOT REMOVE THIS COMMENTED CODE AS I PLAN TO USE IT
+     //IF YOU DO IT I WILL DESTROY THE WORLD
+    {
         struct nk_font_atlas *atlas;
         nk_sdl_font_stash_begin(&atlas);
-    
-        // Force la font par défaut (celle compilée avec Nuklear)
-        struct nk_font *my_font = nk_font_atlas_add_default(atlas, 13.0f, NULL);
-        atlas->default_font = my_font;
-    
+ 
+        struct nk_font *my_font = nk_font_atlas_add_from_memory(
+            atlas,
+            (void*)amiga4ever_ttf,
+            (nk_size)amiga4ever_ttf_len,
+            14.0f,
+            NULL
+        );
+ 
+        if (my_font) {
+            /* If loaded OK, let’s set it as default */
+            fprintf(stderr, "[DEBUG] Embedded TTF loaded successfully.\n");
+            atlas->default_font = my_font;
+        } else {
+            fprintf(stderr, "[DEBUG] Embedded TTF load failed.\n");
+        }
+ 
+        if (!my_font) {
+            /* Try fallback if embed fails */
+            my_font = nk_font_atlas_add_default(atlas, 13.0f, NULL);
+            if (my_font) {
+                fprintf(stderr, "[DEBUG] Nuklear default font assigned.\n");
+                atlas->default_font = my_font;
+            } else {
+                fprintf(stderr, "[DEBUG] Even default font failed!\n");
+            }
+        }
+ 
+        /* Finalize the font atlas */
         nk_sdl_font_stash_end();
-        nk_style_set_font(g_nk, &my_font->handle);
-        fprintf(stderr, "[FONT] width callback pointer = %p\n", (void*)g_nk->style.font->width);
-        fprintf(stderr, "[DEBUG] Default Nuklear font assigned.\n");
+ 
+        /* 
+         * [FIX] We re-introduce nk_style_set_font(...) here, referencing the
+         * handle inside the font atlas, so we have a valid width callback.
+         * This ensures that ctx->style.font->width is non-null.
+         */
+        if (my_font) {
+            /* NEW: force usage of the baked font to avoid assertion. */
+            nk_style_set_font(g_nk, &my_font->handle);
+        }
+ 
+        fprintf(stdout, "[DEBUG] we are after nk_sdl_font_stash_end\n");
     }
+     /* End of embedded font loading block */
+
+    // {
+    //    struct nk_font_atlas *atlas;
+    //    nk_sdl_font_stash_begin(&atlas);
+    //
+    //    // Force la font par défaut (celle compilée avec Nuklear)
+    //    struct nk_font *my_font = nk_font_atlas_add_default(atlas, 13.0f, NULL);
+    //    atlas->default_font = my_font;
+    //
+    //    nk_sdl_font_stash_end();
+    //    nk_style_set_font(g_nk, &my_font->handle);
+    //    fprintf(stderr, "[FONT] width callback pointer = %p\n", (void*)g_nk->style.font->width);
+    //    fprintf(stderr, "[DEBUG] Default Nuklear font assigned.\n");
+    // }
     
  
      /* 3. Load & center the reference bitmap -------------------------------*/
