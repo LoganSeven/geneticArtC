@@ -16,7 +16,7 @@
  
  /* keep the same includes order that you used */
  #include <SDL2/SDL.h>
- #include "Nuklear/nuklear.h"
+ #include "../Nuklear/nuklear.h"
  
  /*
   * The function prototypes must match exactly the code in .c

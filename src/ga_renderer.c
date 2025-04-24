@@ -14,7 +14,7 @@
  *
  */
 
- #include "../includes/ga_renderer.h"
+ #include "../includes/software_rendering/ga_renderer.h"
  #include <stdlib.h>
  #include <string.h>
  #include <math.h>

@@ -17,7 +17,7 @@
 
 /* ---- 2) Includes: your order and style ---- */
 #include "../includes/Nuklear/nuklear.h"
-#include "../includes/nuklear_sdl_renderer.h"
+#include "../includes/software_rendering/nuklear_sdl_renderer.h"
 
 #include <SDL2/SDL.h>
 #include <stdlib.h>

@@ -1,7 +1,7 @@
 #ifndef GA_RENDERER_H
 #define GA_RENDERER_H
 
-#include "genetic_structs.h"
+#include "../genetic_algorythm/genetic_structs.h"
 #include <SDL2/SDL.h>
 
 typedef struct {

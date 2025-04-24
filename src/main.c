@@ -38,11 +38,11 @@
   #include <CL/cl.h>
  #endif
  
- #include "../includes/genetic_art.h"
- #include "../includes/genetic_structs.h"
- #include "../includes/ga_renderer.h"
- #include "../includes/nuklear_sdl_renderer.h"
- #include "../includes/embedded_font.h"
+ #include "../includes/genetic_algorythm/genetic_art.h"
+ #include "../includes/genetic_algorythm/genetic_structs.h"
+ #include "../includes/software_rendering/ga_renderer.h"
+ #include "../includes/software_rendering/nuklear_sdl_renderer.h"
+ #include "../includes/fonts_as_header/embedded_font.h"
  
  #ifndef WIDTH
  #define WIDTH     1280
@@ -77,6 +77,7 @@
  static char                g_log_text[LOG_MAX_LINES][LOG_LINE_LEN];
  static struct nk_color     g_log_color[LOG_MAX_LINES];
  static int                 g_log_count   = 0;
+
  
  void logStr(const char *msg, struct nk_color col)
  {
@@ -89,6 +90,22 @@
      }
      pthread_mutex_unlock(&g_log_mutex);
  }
+
+ void ga_log_to_gui(GALogLevel level, const char *msg, void *user_data)
+{
+    (void)user_data;
+    struct nk_color color;
+
+    switch (level) {
+        case GA_LOG_INFO:  color = nk_rgb(180, 255, 180); break;
+        case GA_LOG_WARN:  color = nk_rgb(255, 255, 0);   break;
+        case GA_LOG_ERROR: color = nk_rgb(255, 100, 100); break;
+        default:           color = nk_rgb(200, 200, 200); break;
+    }
+
+    logStr(msg, color);
+}
+
  
  static void handle_sigint(int sig)
  {
@@ -176,15 +193,18 @@
      };
  
      GAContext ctx = {
-         .params           = &params,
-         .running          = &g_running,
-         .alloc_chromosome = chromosome_create,
-         .free_chromosome  = chromosome_destroy,
-         .best_mutex       = &g_best_mutex,
-         .best_snapshot    = chromosome_create(params.nb_shapes),
-         .fitness_func     = ga_sdl_fitness_callback,
-         .fitness_data     = &fparams
-     };
+        .params           = &params,
+        .running          = &g_running,
+        .alloc_chromosome = chromosome_create,
+        .free_chromosome  = chromosome_destroy,
+        .best_mutex       = &g_best_mutex,
+        .best_snapshot    = chromosome_create(params.nb_shapes),
+        .fitness_func     = ga_sdl_fitness_callback,
+        .fitness_data     = &fparams,
+        .log_func         = ga_log_to_gui,
+        .log_user_data    = NULL
+    };
+    
  
      pthread_t ga_tid;
      if (pthread_create(&ga_tid, NULL, ga_thread_func, &ctx) != 0) goto cleanup_surface;

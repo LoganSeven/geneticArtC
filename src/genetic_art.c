@@ -8,11 +8,18 @@
  * Instead, it calls a user-supplied fitness_func callback.
  */
 
- #include "../includes/genetic_art.h"
+ #include "../includes/genetic_algorythm/genetic_art.h"
  #include <stdlib.h>
  #include <string.h>
  #include <stdio.h>
  #include <time.h>
+
+ /* Internal logger call back */
+static void ga_log(const GAContext *ctx, GALogLevel level, const char *msg)
+{
+    if (ctx && ctx->log_func)
+        ctx->log_func(level, msg, ctx->log_user_data);
+}
  
  /* 
   * We keep an Island Model approach. 
