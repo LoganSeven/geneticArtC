@@ -49,4 +49,3 @@
  #endif
  
  #endif /* NUKLEAR_SDL_RENDERER_H */
- 

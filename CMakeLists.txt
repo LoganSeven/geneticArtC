@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.10)
 
 # ------------------ Project setup ---------------------------------
 project(GeneticArt VERSION 0.0.2 LANGUAGES C)
-set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD 23)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
 # Default to Debug if not specified
@@ -17,7 +17,7 @@ message(STATUS "💻 Target platform: ${CMAKE_SYSTEM_NAME}")
 if(MSVC)
     add_compile_options(/W4)
 else()
-    add_compile_options(-Wall -Wextra -pedantic)
+        add_compile_options(-Wall -Wextra -pedantic -Wno-c23-extensions)
 endif()
 
 # ------------------ Dependencies: SDL2 + Threads -------------------

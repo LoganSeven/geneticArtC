@@ -537,4 +537,3 @@ static void ga_log(const GAContext *ctx, GALogLevel level, const char *msg)
  
      return NULL;
  }
- 

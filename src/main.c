@@ -317,4 +317,3 @@
      logStr("OpenCL GPU: check skipped", nk_rgb(255,255,0));
  #endif
  }
- 
