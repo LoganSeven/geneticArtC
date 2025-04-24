@@ -54,6 +54,7 @@ add_executable(genetic_art
     ${CMAKE_SOURCE_DIR}/src/main.c
     ${CMAKE_SOURCE_DIR}/src/genetic_art.c
     ${CMAKE_SOURCE_DIR}/src/genetic_structs.c
+    ${CMAKE_SOURCE_DIR}/src/ga_renderer.c
     ${CMAKE_SOURCE_DIR}/src/nuklear.c
     ${CMAKE_SOURCE_DIR}/src/nuklear_sdl_renderer.c
 )

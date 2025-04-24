@@ -2,7 +2,6 @@
 // >>>>>>>>>>>>>>>>>>  genetic_structs.h  <<<<<<<<<<<<<<<<<<<<<<
 // =============================================================
 // Runtime‑configurable data structures shared by the GA core
-// and any front‑end (SDL demo, headless bench, etc.).
 // =============================================================
 #ifndef GENETIC_STRUCTS_H
 #define GENETIC_STRUCTS_H
@@ -55,6 +54,7 @@ typedef struct {
 /* Convenience helpers (implemented in genetic_structs.c) -------------- */
 Chromosome *chromosome_create(size_t n_shapes);
 void        chromosome_destroy(Chromosome *c);
+void        copy_chromosome(Chromosome *dst, const Chromosome *src);
 
 #ifdef __cplusplus
 }

@@ -9,7 +9,7 @@
 Chromosome *chromosome_create(size_t n_shapes)
 {
     Chromosome *c = (Chromosome*)malloc(sizeof(Chromosome));
-    if (!c) return NULL;
+    if (!c) return NULL; /* out of memory */
 
     c->shapes = (Gene*)calloc(n_shapes, sizeof(Gene));
     if (!c->shapes) {

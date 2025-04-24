@@ -1,552 +1,110 @@
-/***************************************************************
- *  genetic_art.c
- *  GA core with a more optimized fitness function (AVX2 optional).
+/**
+ * @file genetic_art.c
+ * @brief GA core with multi-threaded evaluation, island model, and shape-based 
+ *        chromosomes. All rendering/pixel code removed.
  *
- *  This file is part of the open-source "Genetic Art C11 + SDL2"
- *  demonstrator. Released under the MIT License.
- **************************************************************/
+ * The GA code is domain-aware in that it manipulates shape Genes (circles, 
+ * triangles) but it does NOT do pixel-based or SDL-based fitness.
+ * Instead, it calls a user-supplied fitness_func callback.
+ */
 
- #include "../includes/genetic_art.h"   // Must come first so GAParams, Chromosome, etc. are known
- #include <math.h>          // For sqrtf(), etc.
- #include <stdlib.h>        // For rand(), malloc(), free(), etc.
- #include <string.h>        // For memset(), memcpy(), etc.
- #include <stdio.h>         // For fprintf()
- #include <unistd.h>        // For sysconf() to get CPU count
- #include <time.h>          // For clock_gettime() to measure timing
+ #include "../includes/genetic_art.h"
+ #include <stdlib.h>
+ #include <string.h>
+ #include <stdio.h>
+ #include <time.h>
  
- #ifdef __AVX2__            // Only if AVX2 compiler flag is set
- #include <immintrin.h>
- #endif
- 
- /*************************** Local helpers *******************************/
- 
- /**
-  * @brief  Inline clamp function: ensures integer v is in [lo, hi].
-  *
-  * static inline to hint the compiler for possible inlining.
-  *
-  * @param v   The integer value to clamp.
-  * @param lo  Lower bound.
-  * @param hi  Upper bound.
-  * @return    v clamped between lo and hi.
+ /* 
+  * We keep an Island Model approach. 
+  * The user can tune these or move them to the GAParams if desired.
   */
- static inline int clampi(int v, int lo, int hi)  // function start
- {
-     return (v < lo) ? lo : (v > hi) ? hi : v;    // return clamped value
- }                                               // function end
+ #define FIT_MAX_WORKERS    8
+ #define ISLAND_COUNT       4    /* default # of islands (threads) */
+ #define MIGRATION_INTERVAL 5    /* generations between migrations */
+ #define MIGRANTS_PER_ISL   1    /* #elite copies exchanged        */
  
- /**
-  * @brief  Puts one pixel (Uint32 color) at (x, y) in the output array.
-  *
-  *   px    = pointer to the start of the pixel buffer
-  *   pitch = number of bytes per row
-  *   x,y   = coordinates
-  *   c     = pixel color (ARGB)
-  *
-  * Each pixel row is pitch bytes, but 4 bytes per Uint32 in ARGB8888.
+ /* 
+  * Forward declarations for local helper functions that do standard GA operations 
+  * (crossover, random init, mutation, etc.) but do NOT use any SDL or pixel logic.
   */
- #ifdef __GNUC__
- static inline __attribute__((unused)) 
- #else
- static inline
- #endif
- void put_px(Uint32 *px, int pitch, int x, int y, Uint32 c)  
- {
-     px[y * (pitch / 4) + x] = c;  // store the color into the row-major buffer
- }
+ static void random_init_chrom(Chromosome *c);
+ static void mutate_gene(Gene *g);
+ static void crossover(const Chromosome *a, const Chromosome *b, Chromosome *o);
  
- /**
-  * @brief  Performs alpha blending of a source ARGB pixel onto a destination ARGB pixel.
-  *
-  * This blends 'src' over 'dst', returning the new blended color as a Uint32.
-  *
-  *   dst, src = ARGB colors
-  *   fmt      = pointer to the SDL_PixelFormat (for extracting RGBA channels)
-  */
- static Uint32 alpha_blend(Uint32 dst, Uint32 src, const SDL_PixelFormat *fmt) // function start
- {
-     Uint8 sr, sg, sb, sa;                        // source channels
-     SDL_GetRGBA(src, fmt, &sr, &sg, &sb, &sa);   // extract source RGBA
- 
-     Uint8 dr, dg, db, da;                        // destination channels
-     SDL_GetRGBA(dst, fmt, &dr, &dg, &db, &da);   // extract destination RGBA
- 
-     const float a = sa / 255.0f;                 // alpha as [0..1]
-     Uint8 rr = (Uint8)(sr * a + dr * (1.0f - a)); // blend R
-     Uint8 rg = (Uint8)(sg * a + dg * (1.0f - a)); // blend G
-     Uint8 rb = (Uint8)(sb * a + db * (1.0f - a)); // blend B
- 
-     // Return the new ARGB color with full alpha = 255
-     return SDL_MapRGBA(fmt, rr, rg, rb, 255);
- }                                                                              // function end
- 
- /**
-  * @brief  Helper function used by draw_triangle() to interpolate an X coordinate
-  *         given a Y coordinate along the edge from (xa, ya) to (xb, yb).
-  *
-  *   y       = the scanline Y
-  *   xa, ya  = first point of the edge
-  *   xb, yb  = second point of the edge
-  * @return   the floating X position on that edge for the given Y.
-  */
- static inline float edge(int y, int xa, int ya, int xb, int yb) // function start
- {
-     if (yb == ya) {
-         // If the edge is a horizontal line, just return xa
-         return (float)xa;
-     }
-     // Else interpolate
-     return xa + (xb - xa) * ((float)(y - ya) / (float)(yb - ya));
- } // function end
- 
- /*======================================================================*/
- /*         Shape rasterizers (circle / filled triangle)                 */
- /*======================================================================*/
- 
- /**
-  * @brief  Draws a circle of color col at center (cx, cy) with radius r
-  *         into the px buffer (pitch = bytes per row).
-  *         Blends color via alpha_blend() for every pixel within the circle.
-  *
-  * @param px     Pointer to pixel buffer (ARGB8888).
-  * @param pitch  Number of bytes per row in the px buffer.
-  * @param fmt    SDL_PixelFormat for color extraction.
-  * @param cx,cy  Center of the circle.
-  * @param r      Radius of the circle.
-  * @param col    The ARGB color to blend.
-  *
-  * NOTE: I rely on external definitions IMAGE_W / IMAGE_H or I can pass them in.
-  *       For clarity, I keep them as in the original. Adjust as needed.
-  */
- static void draw_circle(Uint32 *px, int pitch, const SDL_PixelFormat *fmt,
-                         int cx, int cy, int r, Uint32 col) // function start
- {
-     if (r <= 0) return;                // if radius <= 0, nothing to draw
- 
-     const int r2 = r * r;              // radius squared
-     for (int dy = -r; dy <= r; ++dy) {
-         const int y = cy + dy;         // current row
-         if (y < 0 || y >= IMAGE_H) continue; // skip if out of bounds
- 
-         // For each scan line, figure out how far I can go horizontally
-         const int dx_max = (int)sqrtf((float)(r2 - dy * dy)); // horizontal half-width
-         for (int dx = -dx_max; dx <= dx_max; ++dx) {
-             const int x = cx + dx;    // actual x coordinate
-             if (x < 0 || x >= IMAGE_W) continue; // skip if out of bounds
- 
-             // Compute index into pixel buffer
-             const int idx = y * (pitch / 4) + x; // row-major index
-             // Blend the color
-             px[idx] = alpha_blend(px[idx], col, fmt);
-         }
-     }
- } // function end
- 
- /**
-  * @brief  Draws a filled triangle with vertices (x1,y1), (x2,y2), (x3,y3)
-  *         using color col in the px buffer.
-  *         The triangle is drawn using a simple scan-line approach,
-  *         alpha blending each covered pixel with alpha_blend().
-  *
-  * @param px     Pointer to pixel buffer (ARGB8888).
-  * @param pitch  Number of bytes per row in the px buffer.
-  * @param fmt    SDL_PixelFormat for color extraction.
-  * @param x1,y1  First vertex.
-  * @param x2,y2  Second vertex.
-  * @param x3,y3  Third vertex.
-  * @param col    The ARGB color to blend.
-  *
-  * NOTE: I rely on external definitions IMAGE_W / IMAGE_H or I can pass them in.
-  */
- static void draw_triangle(Uint32 *px, int pitch, const SDL_PixelFormat *fmt,
-                           int x1, int y1, int x2, int y2, int x3, int y3,
-                           Uint32 col)
- {
-     // First, sort vertices by ascending y for simpler edge logic
-     if (y1 > y2) { int tx = x1; x1 = x2; x2 = tx; int ty = y1; y1 = y2; y2 = ty; }
-     if (y1 > y3) { int tx = x1; x1 = x3; x3 = tx; int ty = y1; y1 = y3; y3 = ty; }
-     if (y2 > y3) { int tx = x2; x2 = x3; x3 = tx; int ty = y2; y2 = y3; y3 = ty; }
- 
-     // Loop from top vertex (y1) to bottom vertex (y3)
-     for (int y = y1; y <= y3; ++y) {
-         if (y < 0 || y >= IMAGE_H) continue;  // skip out-of-bounds rows
- 
-         float xa, xb;  // intersection points on left and right edges
- 
-         if (y < y2) {
-             xa = edge(y, x1, y1, x2, y2);
-             xb = edge(y, x1, y1, x3, y3);
-         } else {
-             xa = edge(y, x2, y2, x3, y3);
-             xb = edge(y, x1, y1, x3, y3);
-         }
- 
-         if (xa > xb) {
-             float t = xa; xa = xb; xb = t;
-         }
- 
-         int ix_a = clampi((int)xa, 0, IMAGE_W - 1);
-         int ix_b = clampi((int)xb, 0, IMAGE_W - 1);
- 
-         for (int x = ix_a; x <= ix_b; ++x) {
-             const int idx = y * (pitch / 4) + x; // row-major index
-             px[idx] = alpha_blend(px[idx], col, fmt);
-         }
-     }
- }
- 
- /*======================================================================*/
- /*         Chromosome helpers                                           */
- /*======================================================================*/
- 
- /**
-  * @brief  Renders a single Chromosome c into the out buffer (pitch = row bytes).
-  *         The buffer is cleared to black first, then each Gene is drawn in order.
-  *
-  * @param c     Pointer to the Chromosome to render.
-  * @param out   Output pixel buffer.
-  * @param pitch Number of bytes per row.
-  * @param fmt   SDL_PixelFormat for color extraction.
-  */
- static void render_chrom(const Chromosome *c, Uint32 *out, int pitch,
-                          const SDL_PixelFormat *fmt)
- {
-     // Clear to opaque black
-     memset(out, 0, IMAGE_H * pitch);
- 
-     // Loop over shapes in the chromosome
-     for (size_t i = 0; i < c->n_shapes; ++i) {
-         const Gene *g = &c->shapes[i];
-         const Uint32 col = SDL_MapRGBA(fmt, g->r, g->g, g->b, g->a);
- 
-         if (g->type == SHAPE_CIRCLE) {
-             draw_circle(out, pitch, fmt,
-                         g->geom.circle.cx,
-                         g->geom.circle.cy,
-                         g->geom.circle.radius,
-                         col);
-         } else {
-             draw_triangle(out, pitch, fmt,
-                           g->geom.triangle.x1, g->geom.triangle.y1,
-                           g->geom.triangle.x2, g->geom.triangle.y2,
-                           g->geom.triangle.x3, g->geom.triangle.y3,
-                           col);
-         }
-     }
- }
- 
- /**
-  * @brief  Creates and returns a random Gene, either a circle or a triangle,
-  *         with random coordinates and random RGBA.
-  *
-  * 50% chance circle vs. triangle.
-  */
- static Gene random_gene(void)
- {
-     Gene g;
-     if (rand() & 1) {
-         g.type = SHAPE_CIRCLE;
-         g.geom.circle.cx     = rand() % IMAGE_W;
-         g.geom.circle.cy     = rand() % IMAGE_H;
-         g.geom.circle.radius = (rand() % 50) + 1;
-     } else {
-         g.type = SHAPE_TRIANGLE;
-         g.geom.triangle.x1 = rand() % IMAGE_W;  g.geom.triangle.y1 = rand() % IMAGE_H;
-         g.geom.triangle.x2 = rand() % IMAGE_W;  g.geom.triangle.y2 = rand() % IMAGE_H;
-         g.geom.triangle.x3 = rand() % IMAGE_W;  g.geom.triangle.y3 = rand() % IMAGE_H;
-     }
- 
-     g.r = (unsigned char)(rand() % 256);
-     g.g = (unsigned char)(rand() % 256);
-     g.b = (unsigned char)(rand() % 256);
-     g.a = (unsigned char)(rand() % 256);
- 
-     return g;
- }
- 
- /**
-  * @brief  Mutates (in-place) a single Gene by randomly changing some aspect
-  *         of its shape or color.
-  *         The approach is intentionally naive: I pick one of several possible mutations.
-  *
-  * @param g  Pointer to the Gene to mutate.
-  */
- static void mutate_gene(Gene *g)
- {
-     switch (rand() % 9) {
-     case 0: // toggle type entirely (big change)
-         *g = random_gene();
-         break;
-     case 1: // mutate circle.x or triangle.x1
-         if (g->type == SHAPE_CIRCLE) {
-             g->geom.circle.cx = rand() % IMAGE_W;
-         } else {
-             g->geom.triangle.x1 = rand() % IMAGE_W;
-         }
-         break;
-     case 2: // mutate circle.y or triangle.y1
-         if (g->type == SHAPE_CIRCLE) {
-             g->geom.circle.cy = rand() % IMAGE_H;
-         } else {
-             g->geom.triangle.y1 = rand() % IMAGE_H;
-         }
-         break;
-     case 3: // mutate circle radius or triangle.x2
-         if (g->type == SHAPE_CIRCLE) {
-             g->geom.circle.radius = (rand() % 50) + 1;
-         } else {
-             g->geom.triangle.x2 = rand() % IMAGE_W;
-         }
-         break;
-     case 4: // triangle.y2
-         if (g->type == SHAPE_TRIANGLE) {
-             g->geom.triangle.y2 = rand() % IMAGE_H;
-         }
-         break;
-     case 5: // triangle.x3
-         if (g->type == SHAPE_TRIANGLE) {
-             g->geom.triangle.x3 = rand() % IMAGE_W;
-         }
-         break;
-     case 6: // triangle.y3
-         if (g->type == SHAPE_TRIANGLE) {
-             g->geom.triangle.y3 = rand() % IMAGE_H;
-         }
-         break;
-     case 7: // mutate color (r,g,b)
-         g->r = (unsigned char)(rand() % 256);
-         g->g = (unsigned char)(rand() % 256);
-         g->b = (unsigned char)(rand() % 256);
-         break;
-     case 8: // mutate alpha
-         g->a = (unsigned char)(rand() % 256);
-         break;
-     }
- }
- 
- /**
-  * @brief  Fills an existing Chromosome with random genes, and sets fitness=∞.
-  *
-  * @param c  Pointer to the Chromosome to initialize.
-  */
- static void random_init_chrom(Chromosome *c)
- {
-     for (size_t i = 0; i < c->n_shapes; ++i) {
-         c->shapes[i] = random_gene();
-     }
-     c->fitness = INFINITY;
- }
- 
- /**
-  * @brief  Perform a single crossover (2-parent) for shapes. Half of the genes
-  *         come from parent a, the other half from parent b.
-  *
-  * @param a  First parent chromosome.
-  * @param b  Second parent chromosome.
-  * @param o  Output child chromosome.
-  *
-  * I assume all three Chromosomes have the same n_shapes.
-  */
- static void crossover(const Chromosome *a, const Chromosome *b, Chromosome *o)
- {
-     size_t cut = o->n_shapes / 2;
-     memcpy(o->shapes,         a->shapes,         cut * sizeof(Gene));
-     memcpy(o->shapes + cut, b->shapes + cut, (o->n_shapes - cut) * sizeof(Gene));
- }
- 
- /*======================================================================*/
- /*         Fitness (scalar fallback + AVX2 version)                     */
- /*======================================================================*/
- 
- /**
-  * @brief  Computes the sum of squared color differences (R,G,B) for all pixels,
-  *         dividing by the total pixel count. This is a "mean squared error" measure.
-  *
-  * This is the portable scalar fallback version.
-  *
-  * @param cand      The candidate image buffer (ARGB8888).
-  * @param ref       The reference (target) image buffer (ARGB8888).
-  * @param count_px  Total number of pixels to compare.
-  * @return          MSE over all pixels: sum of squared diffs / count_px.
-  */
- static inline double fitness_scalar(const Uint32 *cand,
-                                     const Uint32 *ref,
-                                     int count_px)
- {
-     double err = 0.0;
-     for (int i = 0; i < count_px; ++i) {
-         Uint32 c = cand[i], r = ref[i];
-         int dr = (int)((c >> 16) & 0xFF) - (int)((r >> 16) & 0xFF);
-         int dg = (int)((c >>  8) & 0xFF) - (int)((r >>  8) & 0xFF);
-         int db = (int)( c        & 0xFF) - (int)( r        & 0xFF);
-         err += (double)(dr*dr + dg*dg + db*db);
-     }
-     return err / count_px;
- }
- 
- #ifdef __AVX2__
- /**
-  * @brief  AVX2 + FMA version of fitness: processes 8 pixels per iteration.
-  *         I sum the squares of (candidate - reference) for R,G,B channels,
-  *         then divide by the total pixel count.
-  *
-  * This is faster on CPUs that support AVX2. I handle leftover pixels if
-  * count_px is not a multiple of 8.
-  *
-  * @param cand      The candidate image buffer (ARGB8888).
-  * @param ref       The reference (target) image buffer (ARGB8888).
-  * @param count_px  Total number of pixels to compare.
-  * @return          MSE over all pixels: sum of squared diffs / count_px.
-  */
- static inline double fitness_avx2(const Uint32 *cand,
-                                   const Uint32 *ref,
-                                   int count_px)
- {
-     const __m256i mR = _mm256_set1_epi32(0x00FF0000); // mask for red channel
-     const __m256i mG = _mm256_set1_epi32(0x0000FF00); // mask for green channel
-     const __m256i mB = _mm256_set1_epi32(0x000000FF); // mask for blue channel
- 
-     __m256d acc = _mm256_setzero_pd();
- 
-     int limit = (count_px / 8) * 8;
-     int i = 0;
-     for (; i < limit; i += 8) {
-         __m256i C = _mm256_loadu_si256((const __m256i *)(cand + i));
-         __m256i R = _mm256_loadu_si256((const __m256i *)(ref  + i));
- 
-         __m256i cR = _mm256_srli_epi32(_mm256_and_si256(C, mR), 16);
-         __m256i rR = _mm256_srli_epi32(_mm256_and_si256(R, mR), 16);
-         __m256i cG = _mm256_srli_epi32(_mm256_and_si256(C, mG),  8);
-         __m256i rG = _mm256_srli_epi32(_mm256_and_si256(R, mG),  8);
-         __m256i cB = _mm256_and_si256(C, mB);
-         __m256i rB = _mm256_and_si256(R, mB);
- 
-         __m256 dR = _mm256_cvtepi32_ps(_mm256_sub_epi32(cR, rR));
-         __m256 dG = _mm256_cvtepi32_ps(_mm256_sub_epi32(cG, rG));
-         __m256 dB = _mm256_cvtepi32_ps(_mm256_sub_epi32(cB, rB));
- 
-         __m256 sum = _mm256_fmadd_ps(dR, dR,
-                         _mm256_fmadd_ps(dG, dG, _mm256_mul_ps(dB, dB)));
- 
-         __m256d lo = _mm256_cvtps_pd(_mm256_castps256_ps128(sum));
-         __m256d hi = _mm256_cvtps_pd(_mm256_extractf128_ps(sum, 1));
-         acc = _mm256_add_pd(acc, _mm256_add_pd(lo, hi));
-     }
- 
-     double leftover_sum = 0.0;
-     for (; i < count_px; i++) {
-         Uint32 c = cand[i], r = ref[i];
-         int dr = (int)((c >> 16) & 0xFF) - (int)((r >> 16) & 0xFF);
-         int dg = (int)((c >>  8) & 0xFF) - (int)((r >>  8) & 0xFF);
-         int db = (int)( c        & 0xFF) - (int)( r        & 0xFF);
-         leftover_sum += (double)(dr*dr + dg*dg + db*db);
-     }
- 
-     double tmp[4];
-     _mm256_storeu_pd(tmp, acc);
-     double sum_avx = tmp[0] + tmp[1] + tmp[2] + tmp[3];
-     return (sum_avx + leftover_sum) / count_px;
- }
- #endif
- 
- /**
-  * @brief Thin wrapper that chooses the fastest path at compile-time.
-  *
-  * If __AVX2__ is defined, I use fitness_avx2(), otherwise fallback
-  * to fitness_scalar().
-  *
-  * @param cand      The candidate image buffer (ARGB8888).
-  * @param ref       The reference (target) image buffer (ARGB8888).
-  * @param count_px  Total number of pixels.
-  * @return          The mean squared error for R,G,B channels.
-  */
- static inline double fitness_px(const Uint32 *cand,
-                                 const Uint32 *ref,
-                                 int count_px)
- {
- #ifdef __AVX2__
-     return fitness_avx2(cand, ref, count_px);
- #else
-     return fitness_scalar(cand, ref, count_px);
- #endif
- }
- 
- /*======================================================================*/
- /*         Parallel fitness worker (thread-pool)                        */
- /*======================================================================*/
- 
- /**
-  * @brief Structure for parallel fitness tasks:
-  *        A single worker processes indices [first, last) inside g_eval_pop.
-  */
+ /* -------------------------------------------------------------------------
+    Per-thread "FitTask" and a global pointer to the population under 
+    evaluation. The user-data for fitness is stored in GAContext. 
+    This approach is exactly like the older code but no pixel references.
+    -------------------------------------------------------------------------*/
  typedef struct FitTask {
-     int first, last;
-     int island_id;               /* STEP 1: pass the island ID */
-     const Uint32      *ref;
-     SDL_PixelFormat   *fmt;
-     int                pitch;
-     pthread_barrier_t *bar;
-     atomic_int        *running;
+     int first, last;            /* slice of population to evaluate */
+     struct GAContext *ctx;      /* pointer to the shared GAContext */
+     pthread_barrier_t *bar;     /* barrier for synchronizing start/finish */
  } FitTask;
  
- /**
-  * @brief Global pointer to the population currently under evaluation
-  *        (updated every generation by the GA thread).
-  *
-  * Instead of an array of Chromosome, I now have an array of pointers
-  * to Chromosome: g_eval_pop[i] is a Chromosome*.
-  */
+ /* global pointer that the worker threads can see: 
+    points to the Chromosome* array for the generation being evaluated. 
+    Used only between barrier waits. 
+ */
  static Chromosome *volatile *g_eval_pop = NULL;
  
  /**
-  * @brief Worker thread function for fitness evaluation:
-  *        - Wait for start barrier
-  *        - If running is true, evaluate assigned slice of population
-  *        - Signal completion barrier
-  *        - Repeat until running is false
+  * @brief Worker thread function that updates the .fitness of each Chromosome 
+  *        in [first..last) by calling ctx->fitness_func().
   *
-  * @param arg  Pointer to FitTask with parameters for the worker.
+  * The thread repeatedly:
+  *  - waits for barrier "start"
+  *  - if GA is still running => compute fitness for the assigned slice
+  *  - wait for barrier "done"
+  *  - exit if the GA has stopped
   */
  static void *fit_worker(void *arg)
  {
-     FitTask *t = (FitTask *)arg;
-     Uint32 *scratch = malloc(IMAGE_W * IMAGE_H * sizeof(Uint32));
-     if (!scratch) return NULL; // if out of memory, exit
+     FitTask *t = (FitTask*)arg;
+     GAContext *ctx = t->ctx;
  
-     while (1)
-     {
+     while (1) {
+         /* Wait for "start" barrier */
          pthread_barrier_wait(t->bar);
-         if (!atomic_load(t->running)) {
+ 
+         /* Check if GA has been signaled to stop. If so, finalize. */
+         if (!ctx->running || !ctx->fitness_func) {
+             /* safety check: if context was invalid, we abort */
+             pthread_barrier_wait(t->bar);
+             break;
+         }
+         if (ctx->running && (0 == *ctx->running)) {
+             /* If the atomic flag is set to 0 => stop */
              pthread_barrier_wait(t->bar);
              break;
          }
  
-         for (int i = t->first; i < t->last; ++i) {
+         /* Evaluate fitness for the assigned slice */
+         for (int i = t->first; i < t->last; i++) {
              Chromosome *c = g_eval_pop[i];
-             render_chrom(c, scratch, t->pitch, t->fmt);
-             c->fitness = fitness_px(scratch, t->ref, IMAGE_W * IMAGE_H);
+             if (!c) continue; /* safety guard */
+             double f = ctx->fitness_func(c, ctx->fitness_data);
+             c->fitness = f;
          }
  
+         /* Wait for "done" barrier */
          pthread_barrier_wait(t->bar);
      }
- 
-     free(scratch);
      return NULL;
  }
  
- /*======================================================================*/
- /*         Island Model Helpers (new)                                   */
- /*======================================================================*/
- 
- /** 
-  * @brief  Simple struct for an island's population slice.
-  */
+ /* -------------------------------------------------------------------------
+    Helper: Island ranges
+    Each island gets a sub-slice [start..end] of the population array.
+    This struct is used for clarity.
+    -------------------------------------------------------------------------*/
  typedef struct {
      int start, end;
  } IslandRange;
  
- /** 
-  * @brief Find the best (lowest-fitness) chromosome in [start..end].
+ /* 
+  * find_best: returns the pointer to the best (lowest fitness) chromosome 
+  * in pop for indices [start..end].
   */
  static Chromosome* find_best(Chromosome **pop, int start, int end)
  {
@@ -559,8 +117,9 @@
      return best;
  }
  
- /**
-  * @brief Find the index of the worst (highest-fitness) chromosome in [start..end].
+ /* 
+  * find_worst_index: returns the index of the worst (highest fitness) 
+  * in pop for [start..end].
   */
  static int find_worst_index(Chromosome **pop, int start, int end)
  {
@@ -573,10 +132,9 @@
      return worst;
  }
  
- /**
-  * @brief Tournament selection restricted to indices [a..b].
-  *        For demonstration, I pick 2 random individuals in the slice
-  *        and return the better (lowest fitness).
+ /* 
+  * tournament_in_range: picks two random individuals in [a..b], 
+  * returns the better one (lowest fitness).
   */
  static inline Chromosome* tournament_in_range(Chromosome **arr, int a, int b)
  {
@@ -588,21 +146,20 @@
      return (c1->fitness <= c2->fitness) ? c1 : c2;
  }
  
- /**
-  * @brief  Migrate MIGRANTS_PER_ISL best individuals in ring topology:
-  *         Each island's worst is replaced by the best from the preceding island.
-  *
-  * @param isl  Array of IslandRange entries (ISLAND_COUNT in size).
-  * @param pop  The array of Chromosome* (the current generation).
+ /* 
+  * migrate: ring-topology migration of MIGRANTS_PER_ISL best individuals 
+  * to replace the worst individuals on the next island.
   */
  static void migrate(IslandRange isl[], Chromosome **pop)
  {
+     /* collect best from each island */
      Chromosome *migrants[ISLAND_COUNT];
-     for (int i = 0; i < ISLAND_COUNT; ++i) {
+     for (int i = 0; i < ISLAND_COUNT; i++) {
          migrants[i] = find_best(pop, isl[i].start, isl[i].end);
      }
  
-     for (int dest = 0; dest < ISLAND_COUNT; ++dest) {
+     /* place them into the "next" island’s worst slot (ring) */
+     for (int dest = 0; dest < ISLAND_COUNT; dest++) {
          int src = (dest - 1 + ISLAND_COUNT) % ISLAND_COUNT;
          int widx = find_worst_index(pop, isl[dest].start, isl[dest].end);
          copy_chromosome(pop[widx], migrants[src]);
@@ -610,141 +167,280 @@
      }
  }
  
- /*======================================================================*/
- /*         GA master thread                                             */
- /*======================================================================*/
  
- /**
-  * @brief GA master thread function. Runs the entire GA:
-  *        1) Builds a thread-pool for parallel fitness evaluation
-  *        2) Initializes the population
-  *        3) Iterates generation steps (reproduction per island, migration, etc.)
-  *        4) Publishes improved best solutions
-  *        5) Graceful shutdown
-  *
-  * Also prints the elapsed time in milliseconds for each 100-iteration block.
-  *
-  * @param arg  Pointer to a valid, fully-initialized GAContext.
-  * @return     NULL when done (thread exit).
+ /* 
+  * random_gene: sets up one gene with random geometry & RGBA. 
+  * This does NOT do pixel-based rendering. 
+  * For demonstration, we fix ranges: x in [0..640], etc.
+  * but we do NOT reference SDL. 
+  * Adjust or parametrize as you wish to remove these numeric limits.
   */
+ static Gene random_gene(void)
+ {
+     Gene g;
+     if (rand() & 1) {
+         g.type = SHAPE_CIRCLE;
+         g.geom.circle.cx     = rand() % 640;
+         g.geom.circle.cy     = rand() % 480;
+         g.geom.circle.radius = (rand() % 50) + 1;
+     } else {
+         g.type = SHAPE_TRIANGLE;
+         g.geom.triangle.x1 = rand() % 640;
+         g.geom.triangle.y1 = rand() % 480;
+         g.geom.triangle.x2 = rand() % 640;
+         g.geom.triangle.y2 = rand() % 480;
+         g.geom.triangle.x3 = rand() % 640;
+         g.geom.triangle.y3 = rand() % 480;
+     }
+ 
+     g.r = (unsigned char)(rand() % 256);
+     g.g = (unsigned char)(rand() % 256);
+     g.b = (unsigned char)(rand() % 256);
+     g.a = (unsigned char)(rand() % 256);
+ 
+     return g;
+ }
+ 
+ /* 
+  * random_init_chrom: fill an existing Chromosome with random genes
+  */
+ static void random_init_chrom(Chromosome *c)
+ {
+     for (size_t i = 0; i < c->n_shapes; i++) {
+         c->shapes[i] = random_gene();
+     }
+     c->fitness = 1.0e30; /* large number instead of Infinity to avoid float issues */
+ }
+ 
+ /* 
+  * mutate_gene: randomly changes aspects of a gene. 
+  * This is domain logic but not pixel-based.
+  */
+ static void mutate_gene(Gene *g)
+ {
+     switch (rand() % 9) {
+     case 0:
+         /* big toggle: replace with a brand-new random gene */
+         *g = random_gene();
+         break;
+     case 1:
+         /* mutate circle.x or triangle.x1 */
+         if (g->type == SHAPE_CIRCLE) {
+             g->geom.circle.cx = rand() % 640;
+         } else {
+             g->geom.triangle.x1 = rand() % 640;
+         }
+         break;
+     case 2:
+         /* mutate circle.y or triangle.y1 */
+         if (g->type == SHAPE_CIRCLE) {
+             g->geom.circle.cy = rand() % 480;
+         } else {
+             g->geom.triangle.y1 = rand() % 480;
+         }
+         break;
+     case 3:
+         /* mutate circle radius or triangle.x2 */
+         if (g->type == SHAPE_CIRCLE) {
+             g->geom.circle.radius = (rand() % 50) + 1;
+         } else {
+             g->geom.triangle.x2 = rand() % 640;
+         }
+         break;
+     case 4:
+         /* triangle.y2 if shape is triangle */
+         if (g->type == SHAPE_TRIANGLE) {
+             g->geom.triangle.y2 = rand() % 480;
+         }
+         break;
+     case 5:
+         /* triangle.x3 */
+         if (g->type == SHAPE_TRIANGLE) {
+             g->geom.triangle.x3 = rand() % 640;
+         }
+         break;
+     case 6:
+         /* triangle.y3 */
+         if (g->type == SHAPE_TRIANGLE) {
+             g->geom.triangle.y3 = rand() % 480;
+         }
+         break;
+     case 7:
+         /* mutate color (r,g,b) */
+         g->r = (unsigned char)(rand() % 256);
+         g->g = (unsigned char)(rand() % 256);
+         g->b = (unsigned char)(rand() % 256);
+         break;
+     case 8:
+         /* mutate alpha */
+         g->a = (unsigned char)(rand() % 256);
+         break;
+     }
+ }
+ 
+ /* 
+  * crossover: 2-parent shape-level crossover. 
+  * We copy half genes from parent A, half from B. 
+  * Caller must ensure all 3 have same n_shapes. 
+  */
+ static void crossover(const Chromosome *a, const Chromosome *b, Chromosome *o)
+ {
+     if (!a || !b || !o) return;
+     if (o->n_shapes != a->n_shapes || a->n_shapes != b->n_shapes) return;
+ 
+     size_t cut = o->n_shapes / 2;
+     memcpy(o->shapes, a->shapes, cut * sizeof(Gene));
+     memcpy(o->shapes + cut, b->shapes + cut, (o->n_shapes - cut) * sizeof(Gene));
+ }
+ 
+ /* -------------------------------------------------------------------------
+    GA main thread function
+    This is the standard multi-threaded GA:
+    1) spawn thread workers
+    2) init population
+    3) main loop with selection, crossover, mutation, migration
+    4) track best => update ctx->best_snapshot
+    5) shutdown
+    -------------------------------------------------------------------------*/
  void *ga_thread_func(void *arg)
  {
-     GAContext *ctx = (GAContext *)arg;
+     GAContext *ctx = (GAContext*)arg;
+     if (!ctx) {
+         return NULL; /* invalid pointer => cannot proceed */
+     }
      const GAParams *p = ctx->params;
+     if (!p) {
+         return NULL; /* invalid pointer => cannot proceed */
+     }
  
-     const int N = ISLAND_COUNT;
+     /* Build a barrier that includes N workers + the GA master thread => total N+1 */
      pthread_barrier_t bar;
+     int N = ISLAND_COUNT; 
      pthread_barrier_init(&bar, NULL, N + 1);
  
+     /* Prepare tasks + threads */
      FitTask tasks[N];
      pthread_t tids[N];
  
-     Chromosome **pop     = malloc(p->population_size * sizeof(Chromosome*));
-     Chromosome **new_pop = malloc(p->population_size * sizeof(Chromosome*));
+     /* 
+      * We represent the population as an array of Chromosome* 
+      * Because we want to do "copy_chromosome" or replacement easily.
+      */
+     Chromosome **pop     = (Chromosome**)malloc(p->population_size * sizeof(Chromosome*));
+     Chromosome **new_pop = (Chromosome**)malloc(p->population_size * sizeof(Chromosome*));
      if (!pop || !new_pop) {
-         fprintf(stderr, "Out of memory for pop arrays\n");
+         fprintf(stderr, "[GA] Out of memory for population arrays.\n");
          pthread_barrier_destroy(&bar);
-         free(pop);
-         free(new_pop);
+         if (pop) free(pop);
+         if (new_pop) free(new_pop);
          return NULL;
      }
  
-     const int ISL_SIZE = p->population_size / ISLAND_COUNT;
+     /* divide population among islands */
+     int isl_size = p->population_size / ISLAND_COUNT;
      IslandRange isl[ISLAND_COUNT];
-     for (int i = 0; i < ISLAND_COUNT; ++i) {
-         isl[i].start = i * ISL_SIZE;
-         isl[i].end   = (i == ISLAND_COUNT - 1)
-                        ? (p->population_size - 1)
-                        : ((i + 1) * ISL_SIZE - 1);
+     for (int i = 0; i < ISLAND_COUNT; i++) {
+         isl[i].start = i * isl_size;
+         if (i == ISLAND_COUNT - 1) {
+             isl[i].end = p->population_size - 1;
+         } else {
+             isl[i].end = (i + 1) * isl_size - 1;
+         }
      }
  
-     for (int k = 0; k < N; ++k) {
-         tasks[k].island_id = k;
-         tasks[k].first     = isl[k].start;
-         tasks[k].last      = isl[k].end + 1;
-         tasks[k].ref       = ctx->src_pixels;
-         tasks[k].fmt       = ctx->fmt;
-         tasks[k].pitch     = ctx->pitch;
-         tasks[k].bar       = &bar;
-         tasks[k].running   = ctx->running;
+     /* Create worker threads */
+     for (int k = 0; k < N; k++) {
+         tasks[k].first = isl[k].start;
+         tasks[k].last  = isl[k].end + 1; /* end is exclusive in our loop */
+         tasks[k].ctx   = ctx;
+         tasks[k].bar   = &bar;
  
-         pthread_create(&tids[k], NULL, fit_worker, &tasks[k]);
+         int ret = pthread_create(&tids[k], NULL, fit_worker, &tasks[k]);
+         if (ret != 0) {
+             fprintf(stderr, "[GA] pthread_create failed for worker %d.\n", k);
+             /* we do not immediately exit: best-effort approach */
+         }
      }
  
-     Uint32 *scratch = malloc(IMAGE_W * IMAGE_H * sizeof(Uint32));
-     if (!scratch) {
-         fprintf(stderr, "Out of memory for scratch buffer\n");
-         pthread_barrier_destroy(&bar);
-         free(pop);
-         free(new_pop);
-         return NULL;
+     /* 
+      * If best_snapshot is not yet allocated, do so 
+      * to store the best solution found so far 
+      */
+     if (!ctx->best_snapshot) {
+         ctx->best_snapshot = ctx->alloc_chromosome(p->nb_shapes);
+         if (!ctx->best_snapshot) {
+             fprintf(stderr, "[GA] Failed to allocate best_snapshot.\n");
+         }
      }
  
-     // -------------------- 2) Initial population -----------------------
-     for (int i = 0; i < p->population_size; ++i) {
-         pop[i] = chromosome_create(p->nb_shapes);
-         if (!pop[i]) {
-             fprintf(stderr, "Out of memory creating chromosome\n");
-             for (int j = 0; j < i; j++) { chromosome_destroy(pop[j]); }
+     /* --------------- 2) Initialize population ---------------*/
+     for (int i = 0; i < p->population_size; i++) {
+         Chromosome *chr = ctx->alloc_chromosome(p->nb_shapes);
+         if (!chr) {
+             fprintf(stderr, "[GA] Out of memory creating chromosome.\n");
+             for (int j = 0; j < i; j++) {
+                 ctx->free_chromosome(pop[j]);
+             }
              free(pop);
              free(new_pop);
-             free(scratch);
              pthread_barrier_destroy(&bar);
              return NULL;
          }
-         random_init_chrom(pop[i]);
- 
-         render_chrom(pop[i], scratch, ctx->pitch, ctx->fmt);
-         pop[i]->fitness = fitness_px(scratch, ctx->src_pixels, IMAGE_W * IMAGE_H);
+         random_init_chrom(chr);
+         pop[i] = chr;
      }
  
-     Chromosome *best = NULL;
- #if defined(__GNUC__) && !defined(__clang__)
- #pragma GCC diagnostic push
- #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
- #endif
-     best = pop[0];
- #if defined(__GNUC__) && !defined(__clang__)
- #pragma GCC diagnostic pop
- #endif
+     /* Evaluate fitness of the initial population */
+     g_eval_pop = pop;
+     pthread_barrier_wait(&bar); /* start */
+     pthread_barrier_wait(&bar); /* done */
  
-     for (int i = 1; i < p->population_size; ++i) {
+     Chromosome *best = pop[0];
+     for (int i = 1; i < p->population_size; i++) {
          if (pop[i]->fitness < best->fitness) {
              best = pop[i];
          }
      }
  
-     pthread_mutex_lock(ctx->best_mutex);
-     render_chrom(best, ctx->best_pixels, ctx->pitch, ctx->fmt);
-     pthread_mutex_unlock(ctx->best_mutex);
+     /* update global best_snapshot if we can lock it */
+     if (ctx->best_snapshot && ctx->best_mutex) {
+         pthread_mutex_lock(ctx->best_mutex);
+         copy_chromosome(ctx->best_snapshot, best);
+         ctx->best_snapshot->fitness = best->fitness;
+         pthread_mutex_unlock(ctx->best_mutex);
+     }
  
+     /* measure time between iteration blocks */
      struct timespec start_ts;
      clock_gettime(CLOCK_MONOTONIC, &start_ts);
-     long long prev_msec = (long long)start_ts.tv_sec * 1000
-                         + (start_ts.tv_nsec / 1000000);
+     long long prev_msec = (long long)start_ts.tv_sec * 1000 + (start_ts.tv_nsec / 1000000LL);
  
-     // -------------------- 3) Main GA loop -----------------------------
-     for (int iter = 1; atomic_load(ctx->running) && iter <= p->max_iterations; ++iter) {
- 
-         if ((iter % MIGRATION_INTERVAL == 0) && (iter > 0)) {
+     /* --------------- 3) Main GA loop ---------------*/
+     for (int iter = 1; (ctx->running && (*ctx->running != 0)) && (iter <= p->max_iterations); iter++) {
+         /* Possibly do ring-migration every MIGRATION_INTERVAL generations */
+         if ((iter % MIGRATION_INTERVAL) == 0 && iter > 0) {
              migrate(isl, pop);
          }
  
-         // Reproduction per island
-         for (int isl_id = 0; isl_id < ISLAND_COUNT; ++isl_id) {
+         /* Reproduction per island */
+         for (int isl_id = 0; isl_id < ISLAND_COUNT; isl_id++) {
+             /* keep the island's best as "elite" in new_pop */
              Chromosome *best_isl = find_best(pop, isl[isl_id].start, isl[isl_id].end);
-             new_pop[isl[isl_id].start] = best_isl; // pointer copy
+             new_pop[isl[isl_id].start] = best_isl;
  
+             /* fill the rest of that island's slice */
              for (int i = isl[isl_id].start + 1; i <= isl[isl_id].end; i++) {
                  Chromosome *pa = tournament_in_range(pop, isl[isl_id].start, isl[isl_id].end);
                  Chromosome *pb = tournament_in_range(pop, isl[isl_id].start, isl[isl_id].end);
                  if (pb->fitness < pa->fitness) {
-                     Chromosome *tmp = pa; pa = pb; pb = tmp;
+                     Chromosome *tmp = pa; 
+                     pa = pb; 
+                     pb = tmp;
                  }
  
-                 Chromosome *child = chromosome_create(p->nb_shapes);
+                 Chromosome *child = ctx->alloc_chromosome(p->nb_shapes);
                  if (!child) {
-                     fprintf(stderr, "Out of memory creating child chromosome\n");
+                     fprintf(stderr, "[GA] Out of memory creating child.\n");
                      break;
                  }
  
@@ -752,10 +448,12 @@
                  if (r01 < p->crossover_rate) {
                      crossover(pa, pb, child);
                  } else {
+                     /* no crossover => copy parent pa */
                      memcpy(child->shapes, pa->shapes, pa->n_shapes * sizeof(Gene));
                  }
  
-                 for (size_t g = 0; g < child->n_shapes; ++g) {
+                 /* mutate */
+                 for (size_t g = 0; g < child->n_shapes; g++) {
                      float mr = (float)rand() / (float)RAND_MAX;
                      if (mr < p->mutation_rate) {
                          mutate_gene(&child->shapes[g]);
@@ -765,64 +463,71 @@
              }
          }
  
-         // Evaluate new_pop in parallel
+         /* Evaluate new_pop in parallel */
          g_eval_pop = new_pop;
-         pthread_barrier_wait(&bar); 
-         pthread_barrier_wait(&bar);
+         pthread_barrier_wait(&bar); /* start */
+         pthread_barrier_wait(&bar); /* done */
  
-         // Check new best
-         for (int i = 0; i < p->population_size; ++i) {
+         /* find best in new_pop, update global best if improved */
+         for (int i = 0; i < p->population_size; i++) {
              if (new_pop[i]->fitness < best->fitness) {
                  best = new_pop[i];
-                 pthread_mutex_lock(ctx->best_mutex);
-                 render_chrom(best, ctx->best_pixels, ctx->pitch, ctx->fmt);
-                 pthread_mutex_unlock(ctx->best_mutex);
-             }
-         }
- 
-         // Free old generation
-         for (int isl_id = 0; isl_id < ISLAND_COUNT; ++isl_id) {
-             Chromosome *kept = new_pop[ isl[isl_id].start ];
-             for (int i = isl[isl_id].start; i <= isl[isl_id].end; ++i) {
-                 if (pop[i] != kept) {
-                     chromosome_destroy(pop[i]);
+                 /* lock best_snapshot and copy */
+                 if (ctx->best_snapshot && ctx->best_mutex) {
+                     pthread_mutex_lock(ctx->best_mutex);
+                     copy_chromosome(ctx->best_snapshot, best);
+                     ctx->best_snapshot->fitness = best->fitness;
+                     pthread_mutex_unlock(ctx->best_mutex);
                  }
              }
          }
  
+         /* free old generation, except the "elites" we re-used in new_pop */
+         for (int isl_id = 0; isl_id < ISLAND_COUNT; isl_id++) {
+             Chromosome *kept = new_pop[isl[isl_id].start];
+             for (int i = isl[isl_id].start; i <= isl[isl_id].end; i++) {
+                 if (pop[i] != kept) {
+                     ctx->free_chromosome(pop[i]);
+                 }
+             }
+         }
+ 
+         /* move new_pop => pop */
          memcpy(pop, new_pop, p->population_size * sizeof(Chromosome*));
  
-         if (iter % 100 == 0) {
+         /* optional: measure performance every 100 iterations */
+         if ((iter % 100) == 0) {
              struct timespec now_ts;
              clock_gettime(CLOCK_MONOTONIC, &now_ts);
-             long long now_msec = (long long)now_ts.tv_sec * 1000
-                                + (now_ts.tv_nsec / 1000000);
+             long long now_msec = (long long)now_ts.tv_sec * 1000 + (now_ts.tv_nsec / 1000000LL);
              long long elapsed_100 = now_msec - prev_msec;
              prev_msec = now_msec;
- 
-             fprintf(stdout,
-                     "[%d] best MSE = %.2f, elapsed for last 100 iters: %lld ms\n",
+             fprintf(stdout, "[GA %d] best fitness = %.4f, last 100 iters: %lld ms\n",
                      iter, best->fitness, elapsed_100);
          }
      }
  
-     // -------------------- 4) Graceful shutdown -------------------------
-     atomic_store(ctx->running, 0); 
-     pthread_barrier_wait(&bar);
-     pthread_barrier_wait(&bar);
+     /* 4) Graceful shutdown: tell workers to exit */
+     if (ctx->running) {
+         *ctx->running = 0;
+     }
+     pthread_barrier_wait(&bar); /* start */
+     pthread_barrier_wait(&bar); /* done */
  
-     for (int k = 0; k < N; ++k) {
+     /* join worker threads */
+     for (int k = 0; k < N; k++) {
          pthread_join(tids[k], NULL);
      }
- 
      pthread_barrier_destroy(&bar);
-     free(scratch);
  
-     for (int i = 0; i < p->population_size; ++i) {
-         chromosome_destroy(pop[i]);
+     /* free population memory */
+     for (int i = 0; i < p->population_size; i++) {
+         /* the final generation is still in pop */
+         ctx->free_chromosome(pop[i]);
      }
      free(pop);
      free(new_pop);
  
      return NULL;
  }
+ 
