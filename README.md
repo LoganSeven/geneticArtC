@@ -151,6 +151,10 @@ See the [LICENSE](./LICENSE) file for more details.
 
 ## Credits
 
-Created by Logan7 - powered by C, SDL2, Nuklear and evolutionary chaos.
+Created by Logan7 — powered by C, SDL2, Nuklear, and evolutionary chaos.
 
-👉 See the [TODO list](./TODO.md) for planned features and ongoing work.
+See the [TODO list](./TODO.md) for planned features and ongoing work.
+
+See the [DOCUMENTATION](./Documentation/NeuroGenesysFramework_GeneticArtC.pdf) for the design rationale and conceptual background behind the project.
+
+An overview diagram of the Island Model Genetic Algorithm is available [here](https://github.com/LoganSeven/geneticArtC/issues/8#issuecomment-2817896401).
