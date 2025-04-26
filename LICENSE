@@ -1,0 +1,32 @@
+MIT License (Modified)
+
+Copyright (c) 2025 LoganSeven
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this code and associated documentation files (the "code"), to deal
+in the code without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the code, subject to the following conditions:
+
+1. The above copyright notice and this permission notice shall be included
+   in all copies or substantial portions of the code.
+
+2. Users are encouraged to:
+   - Experiment freely, adapt, integrate, and build upon the code.
+   - Act with kindness, respect, and professionalism when resharing the code.
+   - Credit the original author ("LoganSeven") by citing the repository or project when relevant.
+   - Retain and include the R&D documentation (provided in the `Documentation/` folder)
+     when redistributing or substantially modifying the code, as it may help provide
+     critical context and technical background for future users.
+
+3. The code is provided "as is", without warranty of any kind, express or implied,
+   including but not limited to the warranties of merchantability, fitness for a particular
+   purpose, and noninfringement. In no event shall the authors or copyright holders
+   be liable for any claim, damages, or other liability, whether in an action of contract,
+   tort, or otherwise, arising from, out of, or in connection with the code or the use
+   or other dealings in the code.
+
+Use the code at your own risk. No guarantees are made regarding its suitability,
+performance, or fitness for any particular purpose.
+
+End of License.
