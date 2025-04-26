@@ -1,4 +1,4 @@
-# Genetic Art (SDL2 + C)
+# Genetic Art (SDL2 + Nuklear + C)
 
 This demonstrator visualizes the behavior and optimization potential of a genetic algorithm implemented in pure C11. Designed to be cross-platform, lightweight, and minimal, it serves as a foundation for exploring evolutionary strategies. The algorithm incrementally try tp reconstructs a target image using only primitive shapes, showing  progress through SDL2.
 
@@ -7,11 +7,13 @@ where genetic algorithms are used as modular agents capable of adaptive optimiza
 
 ## Features
 
-- C11-compliant genetic algorithm
+- C23 (should be C11-compliant with few patches) genetic algorithm
 - Pixel-based software rasterizer (triangles & circles)
 - Parallelism via POSIX threads
-- Interactive display using SDL2
-- Cross-platform support (Linux, Windows)
+- avx2 intrinsics
+- Interactive display using SDL2 and Nuklear
+- self contained Nuklear library as one file header
+- Cross-platform support (Linux, Windows (untested yet))
 
 ## Requirements
 
@@ -25,24 +27,25 @@ where genetic algorithms are used as modular agents capable of adaptive optimiza
 
 ### Linux
 
-```
+# Install dependencies
+sudo apt update
 sudo apt install libsdl2-dev cmake build-essential
 
-# Or build SDL2 from source
+# (Optional) Build SDL2 from source if needed
 git clone https://github.com/libsdl-org/SDL.git -b SDL2
 cd SDL
 mkdir build && cd build
-../configure
+cmake .. 
 make -j$(nproc)
 sudo make install
 sudo ldconfig
-```
 
 ### Windows (Visual Studio)
 
 1. Install CMake
 2. Install SDL2 development libraries for Visual Studio
-3. Extract and place headers/libraries in a known location (or use vcpkg)
+2b. Nuklear 4.12.7 is self contained as a header file lib
+3. Extract and place headers/libraries in a known location (or use vcpkg) 
 4. Open a Developer Command Prompt and:
 
 ```
@@ -83,11 +86,55 @@ The reference image must be a 640x480 BMP file (or will be resized with letterbo
 
 ## Project Structure
 
-```
-main.c            SDL2 display logic and main loop
-genetic_art.c     Genetic algorithm and rasterization engine
-genetic_art.h     Shared interface between main and GA engine
-CMakeLists.txt    CMake build configuration
+```plaintext
+./
+    └── assets/
+        └── fonts/
+            └── amiga4ever.ttf
+    └── bmp_test_set/
+        ├── test1.bmp
+        ├── test2.bmp
+        └── test3.bmp
+    ├── CMakeLists.txt
+    ├── display_folder_tree.sh
+    ├── doxygen_geneticart_config
+    ├── doxygen_nuklear_config
+    └── includes/
+        ├── async_io/
+        │   └── async_file_ops.h
+        ├── config.h
+        ├── fonts_as_header/
+        │   └── embedded_font.h
+        ├── genetic_algorithm/
+        │   ├── genetic_art.h
+        │   └── genetic_structs.h
+        ├── Nuklear/
+        │   └── nuklear.h
+        ├── opengl_rendering/
+        ├── software_rendering/
+        │   ├── ga_renderer.h
+        │   ├── main_runtime.h
+        │   └── nuklear_sdl_renderer.h
+        ├── tools/
+        │   └── system_tools.h
+        └── validators/
+            └── bmp_validator.h
+    ├── README.md
+    └── src/
+        ├── async_file_ops.c
+        ├── bmp_validator.c
+        ├── embedded_font.c
+        ├── ga_renderer.c
+        ├── genetic_art.c
+        ├── genetic_structs.c
+        ├── main.c
+        ├── main_runtime.c
+        ├── nuklear.c
+        ├── nuklear_sdl_renderer.c
+        └── system_tools.c
+    ├── TODO.md
+
+
 ```
 
 ## Known Limitations
@@ -99,10 +146,11 @@ CMakeLists.txt    CMake build configuration
 
 ## License
 
-This part of the project is open-source and available under the MIT License.
+This part of the project is open-source and available under the MIT (modified) License.
+See the [LICENSE](./LICENSE) file for more details.
 
 ## Credits
 
-Created by Logan7 - powered by C, SDL2 and evolutionary chaos.
+Created by Logan7 - powered by C, SDL2, Nuklear and evolutionary chaos.
 
 👉 See the [TODO list](./TODO.md) for planned features and ongoing work.
