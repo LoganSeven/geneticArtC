@@ -1,0 +1,11 @@
+<map id="FitTask" name="FitTask">
+<area shape="rect" id="Node000001" title="Data structure used for each thread&#39;s fitness evaluation task." alt="" coords="58,299,125,324"/>
+<area shape="rect" id="Node000002" href="$structGAContext.html" title="GAContext — central structure for the GA engine." alt="" coords="45,211,137,236"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="94,250,94,298,89,298,89,250"/>
+<area shape="rect" id="Node000003" href="$structGAParams.html" title="Parameters controlling the behavior of the Genetic Algorithm." alt="" coords="5,93,95,119"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="58,132,74,186,86,209,82,212,69,188,52,133"/>
+<area shape="rect" id="Node000004" href="$structChromosome.html" title="Represents a candidate solution composed of multiple genes." alt="" coords="119,93,229,119"/>
+<area shape="poly" id="edge3_Node000002_Node000004" title=" " alt="" coords="163,132,127,188,106,212,102,208,123,185,159,129"/>
+<area shape="rect" id="Node000005" href="$structGene.html" title="Representation of a single gene, corresponding to a colored geometric shape." alt="" coords="146,5,202,31"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="177,45,177,93,171,93,171,45"/>
+</map>

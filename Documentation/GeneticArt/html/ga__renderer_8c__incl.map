@@ -1,0 +1,19 @@
+<map id="src/ga_renderer.c" name="src/ga_renderer.c">
+<area shape="rect" id="Node000001" title="Implements SDL&#45;based rendering and fitness calculation for shape&#45;based chromosomes." alt="" coords="335,5,468,31"/>
+<area shape="rect" id="Node000002" href="$ga__renderer_8h_source.html" title=" " alt="" coords="63,79,247,119"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="366,33,228,77,226,72,365,28"/>
+<area shape="rect" id="Node000006" title=" " alt="" coords="271,86,342,111"/>
+<area shape="poly" id="edge5_Node000001_Node000006" title=" " alt="" coords="389,33,333,79,330,75,386,29"/>
+<area shape="rect" id="Node000007" title=" " alt="" coords="366,86,437,111"/>
+<area shape="poly" id="edge6_Node000001_Node000007" title=" " alt="" coords="404,31,404,72,399,72,399,31"/>
+<area shape="rect" id="Node000008" title=" " alt="" coords="461,86,529,111"/>
+<area shape="poly" id="edge7_Node000001_Node000008" title=" " alt="" coords="417,29,472,75,469,79,413,33"/>
+<area shape="rect" id="Node000009" title=" " alt="" coords="553,86,620,111"/>
+<area shape="poly" id="edge8_Node000001_Node000009" title=" " alt="" coords="429,28,548,78,546,83,427,33"/>
+<area shape="rect" id="Node000003" href="$genetic__structs_8h.html" title="Runtime&#45;configurable data structures for the Genetic Algorithm core." alt="" coords="5,167,157,207"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="140,121,108,158,104,154,136,117"/>
+<area shape="rect" id="Node000005" title=" " alt="" coords="181,174,277,199"/>
+<area shape="poly" id="edge4_Node000002_Node000005" title=" " alt="" coords="173,117,212,162,208,165,169,121"/>
+<area shape="rect" id="Node000004" title=" " alt="" coords="44,255,119,280"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="84,207,84,241,79,241,79,207"/>
+</map>

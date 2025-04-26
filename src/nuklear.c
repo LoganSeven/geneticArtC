@@ -1,8 +1,12 @@
-/*
- * We compile the entire Nuklear library in exactly *one* translation unit
- * by defining NK_IMPLEMENTATION plus the feature macros, then including
- * nuklear.h. This is the standard single-header approach.
+/**
+ * @file nuklear.c
+ * @brief Compilation unit for the Nuklear GUI library (single-header mode).
+ *
+ * Defines NK_IMPLEMENTATION before including nuklear.h so the entire library
+ * is compiled into one translation unit. Various #define lines enable extra
+ * Nuklear features, such as the default font, vertex buffer output, etc.
  */
+
  #define NK_IMPLEMENTATION
  #define NK_INCLUDE_FIXED_TYPES
  #define NK_INCLUDE_STANDARD_IO
@@ -15,5 +19,3 @@
  
  #include "../includes/Nuklear/nuklear.h"
  
- /* No extra code needed. The #defines above produce the full library
-  * in this single .c file when compiled. */

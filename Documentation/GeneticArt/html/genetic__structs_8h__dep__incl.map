@@ -1,0 +1,22 @@
+<map id="includes/genetic_algorithm/genetic_structs.h" name="includes/genetic_algorithm/genetic_structs.h">
+<area shape="rect" id="Node000001" title="Runtime&#45;configurable data structures for the Genetic Algorithm core." alt="" coords="391,5,590,45"/>
+<area shape="rect" id="Node000002" href="$genetic__art_8h_source.html" title=" " alt="" coords="107,93,306,133"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="416,52,270,96,268,91,414,47"/>
+<area shape="rect" id="Node000005" href="$main__runtime_8c.html" title="Runtime init and SDL/Nuklear integration for the Genetic Art demo." alt="" coords="348,269,495,295"/>
+<area shape="poly" id="edge11_Node000001_Node000005" title=" " alt="" coords="469,58,449,94,435,144,428,194,424,269,418,269,422,194,430,143,444,92,464,56"/>
+<area shape="rect" id="Node000007" href="$ga__renderer_8h_source.html" title=" " alt="" coords="459,93,664,133"/>
+<area shape="poly" id="edge7_Node000001_Node000007" title=" " alt="" coords="517,54,548,91,544,95,513,58"/>
+<area shape="rect" id="Node000009" href="$genetic__structs_8c.html" title="Implementation of genetic algorithm structures and functions." alt="" coords="688,101,843,126"/>
+<area shape="poly" id="edge10_Node000001_Node000009" title=" " alt="" coords="564,47,730,98,728,103,563,52"/>
+<area shape="rect" id="Node000003" href="$main__runtime_8h.html" title="Declarations for SDL2 and Nuklear initialization, reference image loading, and main loop management." alt="" coords="24,181,229,221"/>
+<area shape="poly" id="edge2_Node000002_Node000003" title=" " alt="" coords="182,145,146,183,142,179,178,142"/>
+<area shape="rect" id="Node000004" href="$main_8c.html" title="Genetic Algorithm Art Demo main entry point (SDL2 + POSIX threads)." alt="" coords="13,269,102,295"/>
+<area shape="poly" id="edge6_Node000002_Node000004" title=" " alt="" coords="95,131,50,151,30,165,14,183,9,193,8,204,15,227,30,249,46,267,42,271,26,253,11,230,3,205,4,192,10,180,27,161,47,146,93,126"/>
+<area shape="rect" id="Node000006" href="$genetic__art_8c.html" title="GA core with multi&#45;threaded evaluation, island model, and shape&#45;based chromosomes...." alt="" coords="254,189,383,214"/>
+<area shape="poly" id="edge5_Node000002_Node000006" title=" " alt="" coords="244,140,305,186,302,190,241,144"/>
+<area shape="poly" id="edge3_Node000003_Node000004" title=" " alt="" coords="103,234,70,271,66,267,99,230"/>
+<area shape="poly" id="edge4_Node000003_Node000005" title=" " alt="" coords="211,222,379,267,378,272,210,227"/>
+<area shape="poly" id="edge9_Node000007_Node000005" title=" " alt="" coords="535,145,499,183,431,271,427,268,495,180,531,141"/>
+<area shape="rect" id="Node000008" href="$ga__renderer_8c.html" title="Implements SDL&#45;based rendering and fitness calculation for shape&#45;based chromosomes." alt="" coords="509,189,643,214"/>
+<area shape="poly" id="edge8_Node000007_Node000008" title=" " alt="" coords="569,146,577,188,571,189,564,147"/>
+</map>

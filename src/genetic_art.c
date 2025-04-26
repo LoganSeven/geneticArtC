@@ -1,121 +1,148 @@
 /**
  * @file genetic_art.c
- * @brief GA core with multi-threaded evaluation, island model, and shape-based 
+ * @brief GA core with multi-threaded evaluation, island model, and shape-based
  *        chromosomes. All rendering/pixel code removed.
  *
- * The GA code is domain-aware in that it manipulates shape Genes (circles, 
+ * The GA code is domain-aware in that it manipulates shape Genes (circles,
  * triangles) but it does NOT do pixel-based or SDL-based fitness.
  * Instead, it calls a user-supplied fitness_func callback.
  */
 
- #include "../includes/genetic_algorythm/genetic_art.h"
+ #include "../includes/genetic_algorithm/genetic_art.h"
  #include <stdlib.h>
  #include <string.h>
  #include <stdio.h>
  #include <time.h>
-
- /* Internal logger call back */
-static void ga_log(const GAContext *ctx, GALogLevel level, const char *msg)
-{
-    if (ctx && ctx->log_func)
-        ctx->log_func(level, msg, ctx->log_user_data);
-}
  
- /* 
-  * We keep an Island Model approach. 
-  * The user can tune these or move them to the GAParams if desired.
+ /**
+  * @brief Logs a message at a specified log level using the context's log function.
+  *
+  * This function logs a message using the log function callback provided in the GAContext.
+  * The log function is called with the specified log level and message string.
+  *
+  * @param ctx   Pointer to GAContext, which contains the log function callback.
+  * @param level The logging level of the message.
+  * @param msg   The message string to be logged.
+  */
+ static void ga_log(const GAContext *ctx, GALogLevel level, const char *msg)
+ {
+     if (ctx && ctx->log_func)
+         ctx->log_func(level, msg, ctx->log_user_data);
+ }
+ 
+ /**
+  * @brief Island Model parameters.
+  *
+  * The constants below define default values for the island-based GA.
+  * Adjusting these (e.g., number of islands, migration interval, etc.)
+  * can tailor the GA dynamics.
   */
  #define FIT_MAX_WORKERS    8
- #define ISLAND_COUNT       4    /* default # of islands (threads) */
- #define MIGRATION_INTERVAL 5    /* generations between migrations */
- #define MIGRANTS_PER_ISL   1    /* #elite copies exchanged        */
+ #define ISLAND_COUNT       4    /**< Default number of islands (threads). */
+ #define MIGRATION_INTERVAL 5    /**< Generations between migrations. */
+ #define MIGRANTS_PER_ISL   1    /**< Number of elite copies exchanged. */
  
- /* 
-  * Forward declarations for local helper functions that do standard GA operations 
-  * (crossover, random init, mutation, etc.) but do NOT use any SDL or pixel logic.
+ /**
+  * @brief Forward declarations for local helper functions performing standard GA operations.
+  *
+  * These operations (e.g., crossover, random init, mutation) do not rely on any SDL or pixel logic.
   */
  static void random_init_chrom(Chromosome *c);
  static void mutate_gene(Gene *g);
  static void crossover(const Chromosome *a, const Chromosome *b, Chromosome *o);
  
- /* -------------------------------------------------------------------------
-    Per-thread "FitTask" and a global pointer to the population under 
-    evaluation. The user-data for fitness is stored in GAContext. 
-    This approach is exactly like the older code but no pixel references.
-    -------------------------------------------------------------------------*/
+ /**
+  * @brief Data structure used for each thread's fitness evaluation task.
+  *
+  * Contains a slice of the population indices, a pointer to the GAContext,
+  * and a barrier for synchronizing thread operations.
+  */
  typedef struct FitTask {
-     int first, last;            /* slice of population to evaluate */
-     struct GAContext *ctx;      /* pointer to the shared GAContext */
-     pthread_barrier_t *bar;     /* barrier for synchronizing start/finish */
+     int first;             /**< First index (inclusive) of the population slice. */
+     int last;              /**< Last index (exclusive) of the population slice. */
+     struct GAContext *ctx; /**< Shared GAContext pointer, provides fitness func and data. */
+     pthread_barrier_t *bar;/**< Barrier for thread synchronization. */
  } FitTask;
  
- /* global pointer that the worker threads can see: 
-    points to the Chromosome* array for the generation being evaluated. 
-    Used only between barrier waits. 
- */
+ /**
+  * @brief Global pointer allowing worker threads to access the population being evaluated.
+  *
+  * This points to the Chromosome* array of the generation currently under evaluation.
+  * It is used only between barrier waits for parallel fitness calculation.
+  */
  static Chromosome *volatile *g_eval_pop = NULL;
  
  /**
-  * @brief Worker thread function that updates the .fitness of each Chromosome 
-  *        in [first..last) by calling ctx->fitness_func().
+  * @brief Worker thread function that updates the .fitness of each Chromosome in [first..last)
+  *        by calling ctx->fitness_func.
   *
-  * The thread repeatedly:
-  *  - waits for barrier "start"
-  *  - if GA is still running => compute fitness for the assigned slice
-  *  - wait for barrier "done"
-  *  - exit if the GA has stopped
+  * The thread runs in a loop:
+  *   - Waits for the "start" barrier.
+  *   - Checks if the GA is still running. If not, it exits.
+  *   - If running, calculates fitness for the assigned slice of the population.
+  *   - Waits for the "done" barrier.
+  *   - Breaks out if the GA has stopped.
+  *
+  * @param arg Pointer to a FitTask struct that defines the slice of population and the context.
+  * @return Always returns NULL.
   */
  static void *fit_worker(void *arg)
  {
-     FitTask *t = (FitTask*)arg;
-     GAContext *ctx = t->ctx;
+     FitTask *t = (FitTask*)arg;          /* Local pointer to the thread's task context. */
+     GAContext *ctx = t->ctx;            /* Reference to the shared GAContext. */
  
      while (1) {
-         /* Wait for "start" barrier */
+         /* Wait for "start" barrier before computing fitness. */
          pthread_barrier_wait(t->bar);
  
-         /* Check if GA has been signaled to stop. If so, finalize. */
+         /* Check if GA has been signaled to stop or if no valid fitness function is present. */
          if (!ctx->running || !ctx->fitness_func) {
-             /* safety check: if context was invalid, we abort */
              pthread_barrier_wait(t->bar);
              break;
          }
          if (ctx->running && (0 == *ctx->running)) {
-             /* If the atomic flag is set to 0 => stop */
              pthread_barrier_wait(t->bar);
              break;
          }
  
-         /* Evaluate fitness for the assigned slice */
+         /* Evaluate fitness for the assigned slice of population. */
          for (int i = t->first; i < t->last; i++) {
-             Chromosome *c = g_eval_pop[i];
-             if (!c) continue; /* safety guard */
+             Chromosome *c = g_eval_pop[i]; /* Local pointer to the i-th chromosome. */
+             if (!c) continue;              /* Safety guard if pointer is invalid. */
              double f = ctx->fitness_func(c, ctx->fitness_data);
              c->fitness = f;
          }
  
-         /* Wait for "done" barrier */
+         /* Wait for "done" barrier (main thread collects after fitness calculations). */
          pthread_barrier_wait(t->bar);
      }
      return NULL;
  }
  
- /* -------------------------------------------------------------------------
-    Helper: Island ranges
-    Each island gets a sub-slice [start..end] of the population array.
-    This struct is used for clarity.
-    -------------------------------------------------------------------------*/
+ /**
+  * @brief Island range structure indicating the start and end indices for each island.
+  *
+  * Each island receives a contiguous slice [start..end] of the population array.
+  */
  typedef struct {
-     int start, end;
+     int start; /**< Start index of the slice (inclusive). */
+     int end;   /**< End index of the slice (inclusive). */
  } IslandRange;
  
- /* 
-  * find_best: returns the pointer to the best (lowest fitness) chromosome 
-  * in pop for indices [start..end].
+ /**
+  * @brief Finds the Chromosome with the lowest fitness in the given index range.
+  *
+  * This function iterates over the specified range of the population array and finds the
+  * chromosome with the lowest fitness value.
+  *
+  * @param pop   Array of Chromosome pointers.
+  * @param start Starting index (inclusive).
+  * @param end   Ending index (inclusive).
+  * @return Pointer to the best Chromosome (lowest fitness) in the specified range.
   */
  static Chromosome* find_best(Chromosome **pop, int start, int end)
  {
-     Chromosome *best = pop[start];
+     Chromosome *best = pop[start]; /* Tracks the best chromosome found so far. */
      for (int i = start + 1; i <= end; i++) {
          if (pop[i]->fitness < best->fitness) {
              best = pop[i];
@@ -124,13 +151,20 @@ static void ga_log(const GAContext *ctx, GALogLevel level, const char *msg)
      return best;
  }
  
- /* 
-  * find_worst_index: returns the index of the worst (highest fitness) 
-  * in pop for [start..end].
+ /**
+  * @brief Finds the index of the Chromosome with the highest fitness in [start..end].
+  *
+  * This function iterates over the specified range of the population array and finds the
+  * index of the chromosome with the highest fitness value.
+  *
+  * @param pop   Array of Chromosome pointers.
+  * @param start Starting index (inclusive).
+  * @param end   Ending index (inclusive).
+  * @return Index of the worst Chromosome (highest fitness) in the specified range.
   */
  static int find_worst_index(Chromosome **pop, int start, int end)
  {
-     int worst = start;
+     int worst = start; /* Tracks the index of the worst chromosome so far. */
      for (int i = start + 1; i <= end; i++) {
          if (pop[i]->fitness > pop[worst]->fitness) {
              worst = i;
@@ -139,52 +173,64 @@ static void ga_log(const GAContext *ctx, GALogLevel level, const char *msg)
      return worst;
  }
  
- /* 
-  * tournament_in_range: picks two random individuals in [a..b], 
-  * returns the better one (lowest fitness).
+ /**
+  * @brief Performs a tournament selection within [a..b] by picking two random individuals
+  *        and returning the one with lower fitness.
+  *
+  * This function selects two random chromosomes within the specified range and returns
+  * the chromosome with the lower fitness value.
+  *
+  * @param arr Array of Chromosome pointers.
+  * @param a   Starting index (inclusive).
+  * @param b   Ending index (inclusive).
+  * @return Pointer to the Chromosome that wins the tournament (lower fitness).
   */
  static inline Chromosome* tournament_in_range(Chromosome **arr, int a, int b)
  {
-     int idx1 = a + rand() % (b - a + 1);
-     int idx2 = a + rand() % (b - a + 1);
+     int idx1 = a + rand() % (b - a + 1); /* First random index in range. */
+     int idx2 = a + rand() % (b - a + 1); /* Second random index in range. */
  
-     Chromosome *c1 = arr[idx1];
-     Chromosome *c2 = arr[idx2];
+     Chromosome *c1 = arr[idx1];         /* First randomly chosen Chromosome. */
+     Chromosome *c2 = arr[idx2];         /* Second randomly chosen Chromosome. */
      return (c1->fitness <= c2->fitness) ? c1 : c2;
  }
  
- /* 
-  * migrate: ring-topology migration of MIGRANTS_PER_ISL best individuals 
-  * to replace the worst individuals on the next island.
+ /**
+  * @brief Migrates top-performing Chromosomes among islands in a ring topology.
+  *
+  * This function copies the best individual from each island into the worst slot of the next island.
+  * The migration follows a ring topology, where the last island migrates to the first island.
+  *
+  * @param isl Array of IslandRange structs defining each island's slice in the population.
+  * @param pop Array of Chromosome pointers (entire population).
   */
  static void migrate(IslandRange isl[], Chromosome **pop)
  {
-     /* collect best from each island */
-     Chromosome *migrants[ISLAND_COUNT];
+     Chromosome *migrants[ISLAND_COUNT]; /**< Temporary array of best Chromosomes from each island. */
      for (int i = 0; i < ISLAND_COUNT; i++) {
          migrants[i] = find_best(pop, isl[i].start, isl[i].end);
      }
  
-     /* place them into the "next" island’s worst slot (ring) */
+     /* Place them into the "next" island’s worst slot (ring). */
      for (int dest = 0; dest < ISLAND_COUNT; dest++) {
-         int src = (dest - 1 + ISLAND_COUNT) % ISLAND_COUNT;
+         int src = (dest - 1 + ISLAND_COUNT) % ISLAND_COUNT; /* Ring-based source index. */
          int widx = find_worst_index(pop, isl[dest].start, isl[dest].end);
          copy_chromosome(pop[widx], migrants[src]);
          pop[widx]->fitness = migrants[src]->fitness;
      }
  }
  
- 
- /* 
-  * random_gene: sets up one gene with random geometry & RGBA. 
-  * This does NOT do pixel-based rendering. 
-  * For demonstration, we fix ranges: x in [0..640], etc.
-  * but we do NOT reference SDL. 
-  * Adjust or parametrize as you wish to remove these numeric limits.
+ /**
+  * @brief Creates a random Gene (either a circle or a triangle) with random position and color.
+  *
+  * This function does not perform any pixel-based logic. It simply assigns random geometry
+  * (circle or triangle) and random RGBA color values.
+  *
+  * @return A randomly initialized Gene.
   */
  static Gene random_gene(void)
  {
-     Gene g;
+     Gene g; /* A new gene with random geometry and color. */
      if (rand() & 1) {
          g.type = SHAPE_CIRCLE;
          g.geom.circle.cx     = rand() % 640;
@@ -208,30 +254,39 @@ static void ga_log(const GAContext *ctx, GALogLevel level, const char *msg)
      return g;
  }
  
- /* 
-  * random_init_chrom: fill an existing Chromosome with random genes
+ /**
+  * @brief Fills an existing Chromosome with random genes.
+  *
+  * This function initializes each gene in the chromosome with random values using the `random_gene` function.
+  * It also sets the fitness to a very large number, indicating an uncomputed state.
+  *
+  * @param c Pointer to the Chromosome to be randomized.
   */
  static void random_init_chrom(Chromosome *c)
  {
      for (size_t i = 0; i < c->n_shapes; i++) {
          c->shapes[i] = random_gene();
      }
-     c->fitness = 1.0e30; /* large number instead of Infinity to avoid float issues */
+     c->fitness = 1.0e30; /* Initialize fitness to a very large number. */
  }
  
- /* 
-  * mutate_gene: randomly changes aspects of a gene. 
-  * This is domain logic but not pixel-based.
+ /**
+  * @brief Performs a random mutation on a single Gene.
+  *
+  * Depending on a random choice, it may replace the gene entirely
+  * with a new random gene or mutate one of its parameters (geometry or color).
+  *
+  * @param g Pointer to the Gene being mutated.
   */
  static void mutate_gene(Gene *g)
  {
      switch (rand() % 9) {
      case 0:
-         /* big toggle: replace with a brand-new random gene */
+         /* Replace entire gene with a newly generated random gene. */
          *g = random_gene();
          break;
      case 1:
-         /* mutate circle.x or triangle.x1 */
+         /* Mutate circle.x or triangle.x1. */
          if (g->type == SHAPE_CIRCLE) {
              g->geom.circle.cx = rand() % 640;
          } else {
@@ -239,7 +294,7 @@ static void ga_log(const GAContext *ctx, GALogLevel level, const char *msg)
          }
          break;
      case 2:
-         /* mutate circle.y or triangle.y1 */
+         /* Mutate circle.y or triangle.y1. */
          if (g->type == SHAPE_CIRCLE) {
              g->geom.circle.cy = rand() % 480;
          } else {
@@ -247,7 +302,7 @@ static void ga_log(const GAContext *ctx, GALogLevel level, const char *msg)
          }
          break;
      case 3:
-         /* mutate circle radius or triangle.x2 */
+         /* Mutate circle radius or triangle.x2. */
          if (g->type == SHAPE_CIRCLE) {
              g->geom.circle.radius = (rand() % 50) + 1;
          } else {
@@ -255,83 +310,97 @@ static void ga_log(const GAContext *ctx, GALogLevel level, const char *msg)
          }
          break;
      case 4:
-         /* triangle.y2 if shape is triangle */
+         /* Mutate triangle.y2 if shape is triangle. */
          if (g->type == SHAPE_TRIANGLE) {
              g->geom.triangle.y2 = rand() % 480;
          }
          break;
      case 5:
-         /* triangle.x3 */
+         /* Mutate triangle.x3 if shape is triangle. */
          if (g->type == SHAPE_TRIANGLE) {
              g->geom.triangle.x3 = rand() % 640;
          }
          break;
      case 6:
-         /* triangle.y3 */
+         /* Mutate triangle.y3 if shape is triangle. */
          if (g->type == SHAPE_TRIANGLE) {
              g->geom.triangle.y3 = rand() % 480;
          }
          break;
      case 7:
-         /* mutate color (r,g,b) */
+         /* Mutate color (r,g,b). */
          g->r = (unsigned char)(rand() % 256);
          g->g = (unsigned char)(rand() % 256);
          g->b = (unsigned char)(rand() % 256);
          break;
      case 8:
-         /* mutate alpha */
+         /* Mutate alpha channel. */
          g->a = (unsigned char)(rand() % 256);
          break;
      }
  }
  
- /* 
-  * crossover: 2-parent shape-level crossover. 
-  * We copy half genes from parent A, half from B. 
-  * Caller must ensure all 3 have same n_shapes. 
+ /**
+  * @brief Performs shape-level crossover from two parent Chromosomes into one offspring.
+  *
+  * The function splits the gene array at halfway: the first part is copied from parent A,
+  * and the remaining part is copied from parent B.
+  *
+  * @param a Pointer to the first parent Chromosome.
+  * @param b Pointer to the second parent Chromosome.
+  * @param o Pointer to the offspring Chromosome (destination).
   */
  static void crossover(const Chromosome *a, const Chromosome *b, Chromosome *o)
  {
      if (!a || !b || !o) return;
      if (o->n_shapes != a->n_shapes || a->n_shapes != b->n_shapes) return;
  
-     size_t cut = o->n_shapes / 2;
+     size_t cut = o->n_shapes / 2; /* Index at which to switch from parent A to parent B. */
      memcpy(o->shapes, a->shapes, cut * sizeof(Gene));
      memcpy(o->shapes + cut, b->shapes + cut, (o->n_shapes - cut) * sizeof(Gene));
  }
  
- /* -------------------------------------------------------------------------
-    GA main thread function
-    This is the standard multi-threaded GA:
-    1) spawn thread workers
-    2) init population
-    3) main loop with selection, crossover, mutation, migration
-    4) track best => update ctx->best_snapshot
-    5) shutdown
-    -------------------------------------------------------------------------*/
+ /**
+  * @brief Main Genetic Algorithm thread function.
+  *
+  * This function sets up worker threads, initializes the population,
+  * executes the standard GA loop (selection, crossover, mutation, migration),
+  * updates the global best solution, and terminates cleanly.
+  *
+  * Steps:
+  *   1. Spawn thread workers and create a barrier.
+  *   2. Initialize the population (random Chromosomes).
+  *   3. Evaluate the population fitness in parallel.
+  *   4. Main GA loop with selection, crossover, mutation, and ring-migration.
+  *   5. Track the best solution and update ctx->best_snapshot.
+  *   6. Shut down gracefully and free resources.
+  *
+  * @param arg Pointer to a GAContext structure that holds all GA parameters and references.
+  * @return Always returns NULL.
+  */
  void *ga_thread_func(void *arg)
  {
-     GAContext *ctx = (GAContext*)arg;
+     GAContext *ctx = (GAContext*)arg; /* Pointer to GAContext, containing parameters and references. */
      if (!ctx) {
-         return NULL; /* invalid pointer => cannot proceed */
+         return NULL;
      }
-     const GAParams *p = ctx->params;
+     const GAParams *p = ctx->params; /* Local pointer to GA parameters. */
      if (!p) {
-         return NULL; /* invalid pointer => cannot proceed */
+         return NULL;
      }
  
-     /* Build a barrier that includes N workers + the GA master thread => total N+1 */
+     /* Build a barrier that includes N worker threads + the GA master thread => total N+1. */
      pthread_barrier_t bar;
-     int N = ISLAND_COUNT; 
+     int N = ISLAND_COUNT;
      pthread_barrier_init(&bar, NULL, N + 1);
  
-     /* Prepare tasks + threads */
-     FitTask tasks[N];
-     pthread_t tids[N];
+     /* Prepare tasks + threads. */
+     FitTask tasks[N];    /* Array of FitTask structs, one per thread. */
+     pthread_t tids[N];   /* Array of thread IDs. */
  
-     /* 
-      * We represent the population as an array of Chromosome* 
-      * Because we want to do "copy_chromosome" or replacement easily.
+     /**
+      * represent the population as an array of Chromosome
+      * to enable replacement or copy individual Chromosomes easily.
       */
      Chromosome **pop     = (Chromosome**)malloc(p->population_size * sizeof(Chromosome*));
      Chromosome **new_pop = (Chromosome**)malloc(p->population_size * sizeof(Chromosome*));
@@ -343,9 +412,9 @@ static void ga_log(const GAContext *ctx, GALogLevel level, const char *msg)
          return NULL;
      }
  
-     /* divide population among islands */
-     int isl_size = p->population_size / ISLAND_COUNT;
-     IslandRange isl[ISLAND_COUNT];
+     /* Divide population among islands. */
+     int isl_size = p->population_size / ISLAND_COUNT; /* Size of each island's slice. */
+     IslandRange isl[ISLAND_COUNT];                    /* Array of island ranges. */
      for (int i = 0; i < ISLAND_COUNT; i++) {
          isl[i].start = i * isl_size;
          if (i == ISLAND_COUNT - 1) {
@@ -355,24 +424,20 @@ static void ga_log(const GAContext *ctx, GALogLevel level, const char *msg)
          }
      }
  
-     /* Create worker threads */
+     /* Create worker threads. Each worker receives a FitTask. */
      for (int k = 0; k < N; k++) {
          tasks[k].first = isl[k].start;
-         tasks[k].last  = isl[k].end + 1; /* end is exclusive in our loop */
+         tasks[k].last  = isl[k].end + 1; /* 'end' is exclusive in the worker loop. */
          tasks[k].ctx   = ctx;
          tasks[k].bar   = &bar;
  
          int ret = pthread_create(&tids[k], NULL, fit_worker, &tasks[k]);
          if (ret != 0) {
              fprintf(stderr, "[GA] pthread_create failed for worker %d.\n", k);
-             /* we do not immediately exit: best-effort approach */
          }
      }
  
-     /* 
-      * If best_snapshot is not yet allocated, do so 
-      * to store the best solution found so far 
-      */
+     /* If best_snapshot was not allocated, do so now (stores best solution). */
      if (!ctx->best_snapshot) {
          ctx->best_snapshot = ctx->alloc_chromosome(p->nb_shapes);
          if (!ctx->best_snapshot) {
@@ -380,7 +445,7 @@ static void ga_log(const GAContext *ctx, GALogLevel level, const char *msg)
          }
      }
  
-     /* --------------- 2) Initialize population ---------------*/
+     /* -------------------- 2) Initialize population -------------------- */
      for (int i = 0; i < p->population_size; i++) {
          Chromosome *chr = ctx->alloc_chromosome(p->nb_shapes);
          if (!chr) {
@@ -397,19 +462,19 @@ static void ga_log(const GAContext *ctx, GALogLevel level, const char *msg)
          pop[i] = chr;
      }
  
-     /* Evaluate fitness of the initial population */
+     /* Evaluate fitness of the initial population in parallel. */
      g_eval_pop = pop;
      pthread_barrier_wait(&bar); /* start */
      pthread_barrier_wait(&bar); /* done */
  
-     Chromosome *best = pop[0];
+     Chromosome *best = pop[0]; /* Pointer to the best Chromosome found so far. */
      for (int i = 1; i < p->population_size; i++) {
          if (pop[i]->fitness < best->fitness) {
              best = pop[i];
          }
      }
  
-     /* update global best_snapshot if we can lock it */
+     /* Update global best_snapshot if available. */
      if (ctx->best_snapshot && ctx->best_mutex) {
          pthread_mutex_lock(ctx->best_mutex);
          copy_chromosome(ctx->best_snapshot, best);
@@ -417,31 +482,33 @@ static void ga_log(const GAContext *ctx, GALogLevel level, const char *msg)
          pthread_mutex_unlock(ctx->best_mutex);
      }
  
-     /* measure time between iteration blocks */
+     /* Measure time between iteration blocks. */
      struct timespec start_ts;
      clock_gettime(CLOCK_MONOTONIC, &start_ts);
      long long prev_msec = (long long)start_ts.tv_sec * 1000 + (start_ts.tv_nsec / 1000000LL);
  
-     /* --------------- 3) Main GA loop ---------------*/
+     /* -------------------- 3) Main GA loop -------------------- */
      for (int iter = 1; (ctx->running && (*ctx->running != 0)) && (iter <= p->max_iterations); iter++) {
-         /* Possibly do ring-migration every MIGRATION_INTERVAL generations */
+ 
+         /* Perform ring-migration every MIGRATION_INTERVAL generations. */
          if ((iter % MIGRATION_INTERVAL) == 0 && iter > 0) {
              migrate(isl, pop);
          }
  
-         /* Reproduction per island */
+         /* Reproduction per island. */
          for (int isl_id = 0; isl_id < ISLAND_COUNT; isl_id++) {
-             /* keep the island's best as "elite" in new_pop */
              Chromosome *best_isl = find_best(pop, isl[isl_id].start, isl[isl_id].end);
-             new_pop[isl[isl_id].start] = best_isl;
+             new_pop[isl[isl_id].start] = best_isl; /* Keep the island's best (elite) in new_pop. */
  
-             /* fill the rest of that island's slice */
+             /* Fill the rest of the island's slice. */
              for (int i = isl[isl_id].start + 1; i <= isl[isl_id].end; i++) {
                  Chromosome *pa = tournament_in_range(pop, isl[isl_id].start, isl[isl_id].end);
                  Chromosome *pb = tournament_in_range(pop, isl[isl_id].start, isl[isl_id].end);
+ 
+                 /* Ensure pa is not worse than pb for consistent crossover. */
                  if (pb->fitness < pa->fitness) {
-                     Chromosome *tmp = pa; 
-                     pa = pb; 
+                     Chromosome *tmp = pa;
+                     pa = pb;
                      pb = tmp;
                  }
  
@@ -451,17 +518,17 @@ static void ga_log(const GAContext *ctx, GALogLevel level, const char *msg)
                      break;
                  }
  
-                 float r01 = (float)rand() / (float)RAND_MAX;
+                 float r01 = (float)rand() / (float)RAND_MAX; /* Random [0..1] for crossover test. */
                  if (r01 < p->crossover_rate) {
                      crossover(pa, pb, child);
                  } else {
-                     /* no crossover => copy parent pa */
+                     /* No crossover => copy parent pa. */
                      memcpy(child->shapes, pa->shapes, pa->n_shapes * sizeof(Gene));
                  }
  
-                 /* mutate */
+                 /* Mutation step. */
                  for (size_t g = 0; g < child->n_shapes; g++) {
-                     float mr = (float)rand() / (float)RAND_MAX;
+                     float mr = (float)rand() / (float)RAND_MAX; /* Random [0..1] for mutation test. */
                      if (mr < p->mutation_rate) {
                          mutate_gene(&child->shapes[g]);
                      }
@@ -470,16 +537,16 @@ static void ga_log(const GAContext *ctx, GALogLevel level, const char *msg)
              }
          }
  
-         /* Evaluate new_pop in parallel */
+         /* Evaluate new_pop in parallel. */
          g_eval_pop = new_pop;
          pthread_barrier_wait(&bar); /* start */
          pthread_barrier_wait(&bar); /* done */
  
-         /* find best in new_pop, update global best if improved */
+         /* Find the best in new_pop, update global best if improved. */
          for (int i = 0; i < p->population_size; i++) {
              if (new_pop[i]->fitness < best->fitness) {
                  best = new_pop[i];
-                 /* lock best_snapshot and copy */
+                 /* Lock best_snapshot and copy new best if available. */
                  if (ctx->best_snapshot && ctx->best_mutex) {
                      pthread_mutex_lock(ctx->best_mutex);
                      copy_chromosome(ctx->best_snapshot, best);
@@ -489,7 +556,7 @@ static void ga_log(const GAContext *ctx, GALogLevel level, const char *msg)
              }
          }
  
-         /* free old generation, except the "elites" we re-used in new_pop */
+         /* Free old generation, except for the elites they are directly reused in new_pop. */
          for (int isl_id = 0; isl_id < ISLAND_COUNT; isl_id++) {
              Chromosome *kept = new_pop[isl[isl_id].start];
              for (int i = isl[isl_id].start; i <= isl[isl_id].end; i++) {
@@ -499,10 +566,10 @@ static void ga_log(const GAContext *ctx, GALogLevel level, const char *msg)
              }
          }
  
-         /* move new_pop => pop */
+         /* Move new_pop => pop. */
          memcpy(pop, new_pop, p->population_size * sizeof(Chromosome*));
  
-         /* optional: measure performance every 100 iterations */
+         /* Optionally measure performance every 100 iterations. */
          if ((iter % 100) == 0) {
              struct timespec now_ts;
              clock_gettime(CLOCK_MONOTONIC, &now_ts);
@@ -514,22 +581,21 @@ static void ga_log(const GAContext *ctx, GALogLevel level, const char *msg)
          }
      }
  
-     /* 4) Graceful shutdown: tell workers to exit */
+     /* -------------------- 4) Graceful shutdown -------------------- */
      if (ctx->running) {
          *ctx->running = 0;
      }
      pthread_barrier_wait(&bar); /* start */
      pthread_barrier_wait(&bar); /* done */
  
-     /* join worker threads */
+     /* Join worker threads. */
      for (int k = 0; k < N; k++) {
          pthread_join(tids[k], NULL);
      }
      pthread_barrier_destroy(&bar);
  
-     /* free population memory */
+     /* Free population memory. */
      for (int i = 0; i < p->population_size; i++) {
-         /* the final generation is still in pop */
          ctx->free_chromosome(pop[i]);
      }
      free(pop);

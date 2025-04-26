@@ -6,7 +6,7 @@ function display_tree {
     local indent=$2
 
     # Liste des répertoires et fichiers à exclure
-    local exclude_dirs=(".cache" ".vscode" "sdl_lib_src" "SDL" "build")
+    local exclude_dirs=(".cache" ".vscode" "sdl_lib_src" "SDL" "build" "Documentation")
 
     # Vérifie si le répertoire doit être exclu
     local exclude=0

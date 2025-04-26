@@ -1,17 +1,26 @@
-/*
- * Genetic Algorithm Art Demo (SDL2, POSIX threads)
- * -----------------------------------------------
+/**
+ * @file main.c
+ * @brief Genetic Algorithm Art Demo main entry point (SDL2 + POSIX threads).
+ * @details
+ * This file initializes and runs the main application for the Genetic Algorithm Art Demo.
  *
- *  file main.c, relative path: root/src/main.c
+ * It integrates all components:
+ * - SDL2 and Nuklear GUI for interactive display
+ * - Embedded TTF font for rendering
+ * - The GA engine (defined in `genetic_art.c/.h`) which is rendering agnostic
+ * - A decoupled renderer (`ga_renderer.c/.h`) that implements fitness via MSE and shape rasterization
  *
- * Refactored to use decoupled GA core via fitness callback.
- * Uses SDL2 + Nuklear GUI. Font is loaded from embedded TTF memory.
+ * Responsibilities of this file include:
+ * - Setting up SDL and Nuklear
+ * - Loading the reference image
+ * - Creating and managing the GA context
+ * - Running the main loop
+ * - Handling system signals and graceful termination
  *
- * GA logic lives in genetic_art.c/.h — which is rendering agnostic.
- * The ga_renderer.c/.h implements the MSE fitness + rasterization.
- * This main file wires all parts and handles the GUI.
+ * Path: `root/src/main.c`
  */
 
+ #include "software_rendering/nuklear_sdl_renderer.h"
  #define NK_INCLUDE_FIXED_TYPES
  #define NK_INCLUDE_STANDARD_IO
  #define NK_INCLUDE_STANDARD_VARARGS
@@ -33,287 +42,249 @@
  #include <unistd.h>
  
  #if defined(__APPLE__)
-  #include <OpenCL/opencl.h>
+   #include <OpenCL/opencl.h>
  #elif defined(HAVE_OPENCL)
-  #include <CL/cl.h>
+   #include <CL/cl.h>
  #endif
  
- #include "../includes/genetic_algorythm/genetic_art.h"
- #include "../includes/genetic_algorythm/genetic_structs.h"
- #include "../includes/software_rendering/ga_renderer.h"
- #include "../includes/software_rendering/nuklear_sdl_renderer.h"
- #include "../includes/fonts_as_header/embedded_font.h"
+ #include "../includes/config.h"
+ #include "../includes/software_rendering/main_runtime.h"
+ #include "../includes/genetic_algorithm/genetic_art.h"
+ #include "../includes/tools/system_tools.h"
  
- #ifndef WIDTH
- #define WIDTH     1280
- #endif
- #ifndef HEIGHT
- #define HEIGHT    960
- #endif
- #ifndef IMAGE_W
- #define IMAGE_W   640
- #endif
- #ifndef IMAGE_H
- #define IMAGE_H   480
- #endif
+ /* GUI log buffer sizes */
+ #define LOG_MAX_LINES  1024  /**< Maximum number of log lines */
+ #define LOG_LINE_LEN   512   /**< Maximum length of a log line */
  
- #define LOG_MAX_LINES  1024
- #define LOG_LINE_LEN   512
+ /* Shared global variables for logging */
+ pthread_mutex_t g_log_mutex = PTHREAD_MUTEX_INITIALIZER;  /**< Mutex to protect concurrent log access */
+ char g_log_text[LOG_MAX_LINES][LOG_LINE_LEN];  /**< Array of log text lines */
+ struct nk_color g_log_color[LOG_MAX_LINES];    /**< Corresponding color for each log line */
+ int g_log_count = 0;                           /**< Current number of logged lines */
  
- static SDL_Window         *g_window     = NULL;
- static SDL_Renderer       *g_renderer   = NULL;
- static SDL_Texture        *g_ref_tex    = NULL;
- static SDL_Texture        *g_best_tex   = NULL;
+ /**
+  * @brief Global atomic flag indicating if the application is running.
+  */
+ static atomic_int g_running = 1;
  
- static Uint32             *g_ref_pixels  = NULL;
- static Uint32             *g_best_pixels = NULL;
- static SDL_PixelFormat    *g_fmt         = NULL;
- static int                 g_pitch       = 0;
- static pthread_mutex_t     g_best_mutex  = PTHREAD_MUTEX_INITIALIZER;
- static atomic_int          g_running     = 1;
- 
- static struct nk_context  *g_nk         = NULL;
- static pthread_mutex_t     g_log_mutex   = PTHREAD_MUTEX_INITIALIZER;
- static char                g_log_text[LOG_MAX_LINES][LOG_LINE_LEN];
- static struct nk_color     g_log_color[LOG_MAX_LINES];
- static int                 g_log_count   = 0;
-
- 
+ /**
+  * @brief Thread-safe logging function.
+  *
+  * This function logs a message to the GUI log buffer. It uses a mutex to ensure thread safety.
+  *
+  * @param msg The message string to log.
+  * @param col The color associated with the log line in the GUI.
+  */
  void logStr(const char *msg, struct nk_color col)
  {
+     // Lock the mutex to ensure thread-safe access to the log buffer
      pthread_mutex_lock(&g_log_mutex);
+ 
+     // Check if the log buffer has space for a new message
      if (g_log_count < LOG_MAX_LINES) {
+         // Copy the message to the log buffer
          snprintf(g_log_text[g_log_count], LOG_LINE_LEN, "%s", msg);
+ 
+         // Set the color for the log message
          g_log_color[g_log_count] = col;
+ 
+         // Increment the log count
          g_log_count++;
+ 
+         // Print the log message to the console
          printf("[logStr] %s\n", msg);
      }
+ 
+     // Unlock the mutex
      pthread_mutex_unlock(&g_log_mutex);
  }
-
- void ga_log_to_gui(GALogLevel level, const char *msg, void *user_data)
-{
-    (void)user_data;
-    struct nk_color color;
-
-    switch (level) {
-        case GA_LOG_INFO:  color = nk_rgb(180, 255, 180); break;
-        case GA_LOG_WARN:  color = nk_rgb(255, 255, 0);   break;
-        case GA_LOG_ERROR: color = nk_rgb(255, 100, 100); break;
-        default:           color = nk_rgb(200, 200, 200); break;
-    }
-
-    logStr(msg, color);
-}
-
  
+ /**
+  * @brief Callback used by the GA core to emit log messages to the GUI.
+  *
+  * This function is called by the GA core to log messages. It maps the log level to a color and then calls logStr to log the message.
+  *
+  * @param level Logging level (GA_LOG_INFO, GA_LOG_WARN, GA_LOG_ERROR)
+  * @param msg Log message
+  * @param user_data Unused pointer for user-defined data
+  */
+ void ga_log_to_gui(GALogLevel level, const char *msg, void *user_data)
+ {
+     (void)user_data;  // Unused parameter
+ 
+     // Define the color for the log message based on the log level
+     struct nk_color color;
+     switch (level) {
+         case GA_LOG_INFO:  color = nk_rgb(180, 255, 180); break;  /**< Green color for info messages */
+         case GA_LOG_WARN:  color = nk_rgb(255, 255, 0);   break;  /**< Yellow color for warning messages */
+         case GA_LOG_ERROR: color = nk_rgb(255, 100, 100); break;  /**< Red color for error messages */
+         default:           color = nk_rgb(200, 200, 200); break;  /**< Gray color for other messages */
+     }
+ 
+     // Log the message with the determined color
+     logStr(msg, color);
+ }
+ 
+ /**
+  * @brief Signal handler for SIGINT (Ctrl+C).
+  *
+  * This function handles the SIGINT signal (Ctrl+C) by setting the global running flag to 0 and printing a message to the console.
+  *
+  * @param sig The signal number (unused)
+  */
  static void handle_sigint(int sig)
  {
-     (void)sig;
+     (void)sig;  // Unused parameter
+ 
+     // Set the global running flag to 0 to indicate that the application should exit
      atomic_store(&g_running, 0);
+ 
+     // Print a message to the console indicating that SIGINT was received
      fprintf(stderr, "\n[Ctrl+C] SIGINT received. Exiting...\n");
  }
  
- static SDL_Surface *load_and_resize_bmp(const char *filename);
- static void do_startup_selftest(void);
+ /**
+  * @brief Performs advanced system checks on CPU features, OpenGL, OpenCL, and thread count.
+  *
+  * This function performs various system checks and logs the results. It initializes a mutex to protect access to the system capabilities structure.
+  */
+ static void do_startup_selftest(void)
+ {
+     // Define a static variable to hold the system capabilities
+     static SysCapabilities caps;
  
+     // Initialize the mutex to protect access to the system capabilities structure
+     pthread_mutex_init(&caps.mutex, NULL);
+ 
+     // Detect the system capabilities
+     detect_system_capabilities(&caps);
+ 
+     // Log the system capabilities
+     log_system_capabilities(&caps,
+                             logStr,
+                             nk_rgb(180, 255, 180),  /**< Green color for info messages */
+                             nk_rgb(255, 255, 0));   /**< Yellow color for warning messages */
+ 
+     // Destroy the mutex
+     pthread_mutex_destroy(&caps.mutex);
+ }
+ 
+ /**
+  * @brief Main entry point of the application.
+  *
+  * This function is the main entry point of the application. It initializes SDL and Nuklear, loads the reference image, creates the GA context, and runs the main loop.
+  *
+  * @param argc Argument count.
+  * @param argv Argument vector. Expects a single image path as argument.
+  * @return EXIT_SUCCESS on successful execution, EXIT_FAILURE otherwise.
+  */
  int main(int argc, char *argv[])
  {
+     // Set the signal handler for SIGINT (Ctrl+C)
      signal(SIGINT, handle_sigint);
+ 
+     // Check if the correct number of arguments was provided
      if (argc < 2) {
+         // Print the usage message and exit with failure
          fprintf(stderr, "Usage: %s <image.bmp>\n", argv[0]);
          return EXIT_FAILURE;
      }
+ 
+     // Seed the random number generator
      srand((unsigned)time(NULL));
  
-     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0) {
-         fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
+     // Initialize SDL and create the main window and renderer
+     SDL_Window *window = NULL;  /**< Pointer to main SDL window */
+     SDL_Renderer *renderer = NULL;  /**< Pointer to SDL renderer */
+     if (init_sdl_and_window(&window, &renderer) != 0) {
+         // Exit with failure if SDL initialization failed
          return EXIT_FAILURE;
      }
  
-     g_window = SDL_CreateWindow("Genetic Art (Refactored)", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, WIDTH, HEIGHT, SDL_WINDOW_SHOWN);
-     if (!g_window) goto cleanup_sdl;
- 
-     g_renderer = SDL_CreateRenderer(g_window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-     if (!g_renderer) goto cleanup_window;
- 
-     g_nk = nk_sdl_init(g_window, g_renderer);
-     if (!g_nk) goto cleanup_renderer;
- 
-     // Embedded font loading block
-     {
-         struct nk_font_atlas *atlas;
-         nk_sdl_font_stash_begin(&atlas);
-         struct nk_font *my_font = nk_font_atlas_add_from_memory(
-            atlas, 
-            (void*)amiga4ever_ttf,
-             amiga4ever_ttf_len,
-              10.0f,
-               NULL);
-         if (!my_font)
-             my_font = nk_font_atlas_add_default(atlas, 13.0f, NULL);
-         nk_sdl_font_stash_end();
-         if (my_font)
-             nk_style_set_font(g_nk, &my_font->handle);
+     // Initialize Nuklear and load the font
+     struct nk_context *nk_ctx = NULL;  /**< Nuklear GUI context */
+     if (init_nuklear_and_font(&nk_ctx, window, renderer) != 0) {
+         // Clean up and exit with failure if Nuklear initialization failed
+         cleanup_all();
+         return EXIT_FAILURE;
      }
  
-     SDL_Surface *surf = load_and_resize_bmp(argv[1]);
-     if (!surf) goto cleanup_nuklear;
-     g_fmt   = SDL_AllocFormat(surf->format->format);
-     g_pitch = IMAGE_W * sizeof(Uint32);
- 
-     g_ref_pixels  = malloc(IMAGE_W * IMAGE_H * sizeof(Uint32));
-     g_best_pixels = calloc(IMAGE_W * IMAGE_H, sizeof(Uint32));
-     if (!g_ref_pixels || !g_best_pixels || !g_fmt) goto cleanup_surface;
- 
-     SDL_LockSurface(surf);
-     for (int y = 0; y < IMAGE_H; y++) {
-         const Uint32 *sp = (const Uint32*)((const Uint8*)surf->pixels + y * surf->pitch);
-         memcpy(&g_ref_pixels[y * IMAGE_W], sp, IMAGE_W * sizeof(Uint32));
+     // Load the reference BMP file from the command line argument
+     SDL_PixelFormat *fmt = NULL;  /**< Pointer to the SDL pixel format */
+     Uint32 *ref_pixels = NULL;  /**< Pointer to the reference image pixels */
+     SDL_Texture *tex_ref = load_reference_image(argv[1], renderer, &fmt, &ref_pixels);
+     if (!tex_ref || !fmt || !ref_pixels) {
+         // Clean up and exit with failure if the reference image could not be loaded
+         cleanup_all();
+         return EXIT_FAILURE;
      }
-     SDL_UnlockSurface(surf);
  
-     g_ref_tex = SDL_CreateTextureFromSurface(g_renderer, surf);
-     SDL_FreeSurface(surf);
-     g_best_tex = SDL_CreateTexture(g_renderer, g_fmt->format, SDL_TEXTUREACCESS_STREAMING, IMAGE_W, IMAGE_H);
-     if (!g_ref_tex || !g_best_tex) goto cleanup_surface;
+     // Allocate memory for the best image pixels
+     Uint32 *best_pixels = calloc(IMAGE_W * IMAGE_H, sizeof(Uint32));
+     if (!best_pixels) {
+         // Clean up and exit with failure if memory allocation failed
+         cleanup_all();
+         return EXIT_FAILURE;
+     }
  
+     // Create the SDL texture for the best image
+     SDL_Texture *tex_best = SDL_CreateTexture(renderer, fmt->format, SDL_TEXTUREACCESS_STREAMING, IMAGE_W, IMAGE_H);
+     if (!tex_best) {
+         // Free the best image pixels and clean up and exit with failure if the texture could not be created
+         free(best_pixels);
+         cleanup_all();
+         return EXIT_FAILURE;
+     }
+     // Run system checks and log them
      do_startup_selftest();
-     logStr("Welcome to GA Art (Refactored)", nk_rgb(255,255,0));
+     // Log welcome messages
+     logStr("Welcome to GA Art (a X-platform C boilerplate for genetic coding exploration)", nk_rgb(127, 255, 0));
+     logStr("by LoganSeven, under MIT license (for now)", nk_rgb(127, 255, 0));
+     // Build the GA context
+     GAContext ctx = build_ga_context(ref_pixels, best_pixels, fmt, IMAGE_W * sizeof(Uint32), &g_running);
+     ctx.log_func = ga_log_to_gui;  /**< Set the log function for the GA context */
  
-     GAParams params = {500, 100, 2, 0.05f, 0.70f, 1000000};
- 
-     GAFitnessParams fparams = {
-         .ref_pixels     = g_ref_pixels,
-         .scratch_pixels = calloc(IMAGE_W * IMAGE_H, sizeof(Uint32)),
-         .fmt            = g_fmt,
-         .pitch          = g_pitch,
-         .width          = IMAGE_W,
-         .height         = IMAGE_H
-     };
- 
-     GAContext ctx = {
-        .params           = &params,
-        .running          = &g_running,
-        .alloc_chromosome = chromosome_create,
-        .free_chromosome  = chromosome_destroy,
-        .best_mutex       = &g_best_mutex,
-        .best_snapshot    = chromosome_create(params.nb_shapes),
-        .fitness_func     = ga_sdl_fitness_callback,
-        .fitness_data     = &fparams,
-        .log_func         = ga_log_to_gui,
-        .log_user_data    = NULL
-    };
-    
- 
+     // Create the GA thread
      pthread_t ga_tid;
-     if (pthread_create(&ga_tid, NULL, ga_thread_func, &ctx) != 0) goto cleanup_surface;
+     if (pthread_create(&ga_tid, NULL, ga_thread_func, &ctx) != 0) {
+         // Free the best image pixels and clean up and exit with failure if the GA thread could not be created
+         free(best_pixels);
+         cleanup_all();
+         return EXIT_FAILURE;
+     }
  
+     // Main loop for event handling, Nuklear GUI, and rendering reference + best images
+     SDL_Event ev;
      while (atomic_load(&g_running)) {
-         SDL_Event ev;
-         nk_input_begin(g_nk);
+         // Poll for SDL events
          while (SDL_PollEvent(&ev)) {
+             // Pass events to Nuklear input handler
              nk_sdl_handle_event(&ev);
-             if (ev.type == SDL_QUIT) atomic_store(&g_running, 0);
+
+             // Handle mouse wheel for scrolling in Nuklear
+             if (ev.type == SDL_MOUSEWHEEL) {
+                 nk_input_scroll(nk_ctx, nk_vec2(0.0f, (float)ev.wheel.y));
+             }
+             // Handle the SDL_QUIT event to exit the application
+             if (ev.type == SDL_QUIT) {
+                 atomic_store(&g_running, 0);
+             }
          }
-         nk_input_end(g_nk);
- 
-         SDL_SetRenderDrawColor(g_renderer, 0, 0, 0, 255);
-         SDL_RenderClear(g_renderer);
-         SDL_RenderCopy(g_renderer, g_ref_tex, NULL, &(SDL_Rect){0, 0, IMAGE_W, IMAGE_H});
- 
-         pthread_mutex_lock(&g_best_mutex);
-         render_chrom(ctx.best_snapshot, g_best_pixels, g_pitch, g_fmt, IMAGE_W, IMAGE_H);
-         pthread_mutex_unlock(&g_best_mutex);
- 
-         SDL_UpdateTexture(g_best_tex, NULL, g_best_pixels, g_pitch);
-         SDL_RenderCopy(g_renderer, g_best_tex, NULL, &(SDL_Rect){IMAGE_W, 0, IMAGE_W, IMAGE_H});
- 
-         if (nk_begin(g_nk, "Log", nk_rect(0,480,640,480), NK_WINDOW_BORDER|NK_WINDOW_SCROLL_AUTO_HIDE|NK_WINDOW_TITLE)) {
-             nk_layout_row_dynamic(g_nk, 18, 1);
-             pthread_mutex_lock(&g_log_mutex);
-             for (int i = 0; i < g_log_count; i++)
-                 nk_text_colored(g_nk, g_log_text[i], strlen(g_log_text[i]), NK_TEXT_LEFT, g_log_color[i]);
-             pthread_mutex_unlock(&g_log_mutex);
-         }
-         nk_end(g_nk);
- 
-         if (nk_begin(g_nk, "Future Widgets", nk_rect(640,480,640,480), NK_WINDOW_BORDER|NK_WINDOW_TITLE)) {
-             nk_layout_row_dynamic(g_nk, 30, 1);
-             nk_label(g_nk, "Put your GUI controls here.", NK_TEXT_LEFT);
-         }
-         nk_end(g_nk);
- 
-         nk_sdl_render(NK_ANTI_ALIASING_ON);
-         SDL_RenderPresent(g_renderer);
-         nk_clear(g_nk);
-         SDL_Delay(10);
+         // Run the main loop to update the GA context, Nuklear GUI, and render the images
+         run_main_loop(&ctx, nk_ctx, window, renderer, tex_ref, tex_best, best_pixels, IMAGE_W * sizeof(Uint32));
      }
  
+     // Wait for the GA thread to exit cleanly
      pthread_join(ga_tid, NULL);
- 
- cleanup_surface:
-     free(g_ref_pixels); free(g_best_pixels); free(fparams.scratch_pixels);
-     if (g_ref_tex) SDL_DestroyTexture(g_ref_tex);
-     if (g_best_tex) SDL_DestroyTexture(g_best_tex);
-     if (g_fmt) SDL_FreeFormat(g_fmt);
- 
- cleanup_nuklear:
-     if (g_nk) nk_sdl_shutdown();
- 
- cleanup_renderer:
-     if (g_renderer) SDL_DestroyRenderer(g_renderer);
- 
- cleanup_window:
-     if (g_window) SDL_DestroyWindow(g_window);
- 
- cleanup_sdl:
-     SDL_Quit();
+     // Clean up the GA context resources
+     destroy_ga_context(&ctx);
+     // Free the reference and best image pixels
+     free(ref_pixels);
+     free(best_pixels);
+     // Free the SDL pixel format
+     if (fmt) SDL_FreeFormat(fmt);
+     // Clean up all resources
+     cleanup_all();
+     // Exit with success
      return EXIT_SUCCESS;
- }
- 
- static SDL_Surface *load_and_resize_bmp(const char *filename)
- {
-     SDL_Surface *orig = SDL_LoadBMP(filename);
-     if (!orig) return NULL;
-     if (orig->w == IMAGE_W && orig->h == IMAGE_H)
-         return SDL_ConvertSurfaceFormat(orig, SDL_PIXELFORMAT_ARGB8888, 0);
- 
-     float scale = fminf((float)IMAGE_W/orig->w, (float)IMAGE_H/orig->h);
-     int new_w = (int)(orig->w * scale);
-     int new_h = (int)(orig->h * scale);
- 
-     SDL_Surface *tmp = SDL_CreateRGBSurfaceWithFormat(0, new_w, new_h, 32, SDL_PIXELFORMAT_ARGB8888);
-     SDL_BlitScaled(orig, NULL, tmp, NULL);
- 
-     SDL_Surface *final = SDL_CreateRGBSurfaceWithFormat(0, IMAGE_W, IMAGE_H, 32, SDL_PIXELFORMAT_ARGB8888);
-     SDL_FillRect(final, NULL, SDL_MapRGB(final->format, 0, 0, 0));
-     SDL_Rect dst = {(IMAGE_W - new_w)/2, (IMAGE_H - new_h)/2, new_w, new_h};
-     SDL_BlitSurface(tmp, NULL, final, &dst);
- 
-     SDL_FreeSurface(tmp);
-     SDL_FreeSurface(orig);
-     return final;
- }
- 
- static void do_startup_selftest(void)
- {
- #if defined(__GNUC__) || defined(__clang__)
-     logStr(__builtin_cpu_supports("avx2") ? "AVX2: ok" : "AVX2: na", nk_rgb(180,255,180));
- #else
-     logStr("AVX2: unknown", nk_rgb(255,255,0));
- #endif
-     char tmp[64];
-     snprintf(tmp, sizeof(tmp), "Threads: %ld", sysconf(_SC_NPROCESSORS_ONLN));
-     logStr(tmp, nk_rgb(180,255,180));
- #if defined(__APPLE__) || defined(HAVE_OPENCL)
-     cl_uint plat_count = 0;
-     if (clGetPlatformIDs(0, NULL, &plat_count) != CL_SUCCESS || plat_count == 0) {
-         logStr("OpenCL GPU: not found", nk_rgb(255,200,200));
-     } else {
-         logStr("OpenCL GPU: found", nk_rgb(180,255,180));
-     }
- #else
-     logStr("OpenCL GPU: check skipped", nk_rgb(255,255,0));
- #endif
  }

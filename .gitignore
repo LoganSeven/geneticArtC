@@ -2,3 +2,4 @@ sdl_lib_src/
 build/*
 !build/genetic_art
 .vscode
+.cache/

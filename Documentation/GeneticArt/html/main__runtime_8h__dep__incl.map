@@ -1,0 +1,7 @@
+<map id="includes/software_rendering/main_runtime.h" name="includes/software_rendering/main_runtime.h">
+<area shape="rect" id="Node000001" title="Declarations for SDL2 and Nuklear initialization, reference image loading, and main loop management." alt="" coords="18,5,223,45"/>
+<area shape="rect" id="Node000002" href="$main_8c.html" title="Genetic Algorithm Art Demo main entry point (SDL2 + POSIX threads)." alt="" coords="5,93,95,119"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="97,57,63,95,59,91,93,54"/>
+<area shape="rect" id="Node000003" href="$main__runtime_8c.html" title="Runtime init and SDL/Nuklear integration for the Genetic Art demo." alt="" coords="119,93,266,119"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="149,54,184,91,180,95,145,57"/>
+</map>
