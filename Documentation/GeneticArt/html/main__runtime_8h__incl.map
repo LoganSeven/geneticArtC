@@ -1,0 +1,16 @@
+<map id="includes/software_rendering/main_runtime.h" name="includes/software_rendering/main_runtime.h">
+<area shape="rect" id="Node000001" title="Declarations for SDL2 and Nuklear initialization, reference image loading, and main loop management." alt="" coords="36,5,241,45"/>
+<area shape="rect" id="Node000002" title=" " alt="" coords="5,101,101,126"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="122,47,77,92,73,89,118,44"/>
+<area shape="rect" id="Node000003" title=" " alt="" coords="83,181,181,207"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="141,46,136,168,130,168,135,46"/>
+<area shape="rect" id="Node000004" href="$genetic__art_8h_source.html" title=" " alt="" coords="189,93,341,133"/>
+<area shape="poly" id="edge3_Node000001_Node000004" title=" " alt="" coords="168,43,227,83,224,88,165,48"/>
+<area shape="poly" id="edge7_Node000004_Node000003" title=" " alt="" coords="235,136,165,177,162,172,232,131"/>
+<area shape="rect" id="Node000005" href="$genetic__structs_8h.html" title="Runtime&#45;configurable data structures for the Genetic Algorithm core." alt="" coords="205,181,339,207"/>
+<area shape="poly" id="edge4_Node000004_Node000005" title=" " alt="" coords="270,133,272,167,267,168,264,134"/>
+<area shape="rect" id="Node000007" title=" " alt="" coords="363,181,447,207"/>
+<area shape="poly" id="edge6_Node000004_Node000007" title=" " alt="" coords="300,131,374,172,371,177,298,136"/>
+<area shape="rect" id="Node000006" title=" " alt="" coords="235,255,309,280"/>
+<area shape="poly" id="edge5_Node000005_Node000006" title=" " alt="" coords="275,207,275,241,269,241,269,207"/>
+</map>

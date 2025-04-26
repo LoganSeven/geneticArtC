@@ -1,0 +1,20 @@
+var searchData=
+[
+  ['g_0',['g',['../structGene.html#a20324ee31e3ce4c0d3a57bd24ad57bdb',1,'Gene']]],
+  ['g_5flog_5fcolor_1',['g_log_color',['../main_8c.html#abd51677e1f2cf74d9227507e5a33c7fb',1,'g_log_color:&#160;main.c'],['../main__runtime_8c.html#a491027e1bcd0d7a1cc4ffb94cc73d446',1,'g_log_color:&#160;main.c']]],
+  ['g_5flog_5fcount_2',['g_log_count',['../main__runtime_8c.html#ab04af10125ca5972556beae5b9036f0a',1,'g_log_count:&#160;main.c'],['../main_8c.html#ab04af10125ca5972556beae5b9036f0a',1,'g_log_count:&#160;main.c']]],
+  ['g_5flog_5fmutex_3',['g_log_mutex',['../main__runtime_8c.html#a78adc79ba64266ed50a06bb638f355fe',1,'g_log_mutex:&#160;main.c'],['../main_8c.html#a78adc79ba64266ed50a06bb638f355fe',1,'g_log_mutex:&#160;main.c']]],
+  ['g_5flog_5ftext_4',['g_log_text',['../main__runtime_8c.html#a158c1bf6ca040cf8c0ac49f4b6e9ad1d',1,'g_log_text:&#160;main.c'],['../main_8c.html#a71c3b5748585d6792f56270efd9dacb0',1,'g_log_text:&#160;main.c']]],
+  ['ga_5flog_5fto_5fgui_5',['ga_log_to_gui',['../main_8c.html#aed6bf65a54c7d1431a311cda63985c74',1,'main.c']]],
+  ['ga_5frenderer_2ec_6',['ga_renderer.c',['../ga__renderer_8c.html',1,'']]],
+  ['ga_5fsdl_5ffitness_5fcallback_7',['ga_sdl_fitness_callback',['../ga__renderer_8c.html#a89c4b0f17f37d22a497ee2a3e464a898',1,'ga_renderer.c']]],
+  ['ga_5fthread_5ffunc_8',['ga_thread_func',['../genetic__art_8c.html#ab8fff54747fccac136fcfa8fc03dd05b',1,'genetic_art.c']]],
+  ['gacontext_9',['GAContext',['../structGAContext.html',1,'']]],
+  ['gafitnessparams_10',['GAFitnessParams',['../structGAFitnessParams.html',1,'']]],
+  ['gaparams_11',['GAParams',['../structGAParams.html',1,'']]],
+  ['gene_12',['Gene',['../structGene.html',1,'']]],
+  ['genetic_5fart_2ec_13',['genetic_art.c',['../genetic__art_8c.html',1,'']]],
+  ['genetic_5fstructs_2ec_14',['genetic_structs.c',['../genetic__structs_8c.html',1,'']]],
+  ['genetic_5fstructs_2eh_15',['genetic_structs.h',['../genetic__structs_8h.html',1,'']]],
+  ['geom_16',['geom',['../structGene.html#a5d6426dfcc1e77c147ee516b13925ade',1,'Gene']]]
+];

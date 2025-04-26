@@ -1,0 +1,7 @@
+<map id="includes/fonts_as_header/embedded_font.h" name="includes/fonts_as_header/embedded_font.h">
+<area shape="rect" id="Node000001" title="Extern declarations for the embedded font data." alt="" coords="79,5,266,45"/>
+<area shape="rect" id="Node000002" href="$embedded__font_8c.html" title="Defines the embedded TTF font data used by the application." alt="" coords="5,93,164,119"/>
+<area shape="poly" id="edge1_Node000001_Node000002" title=" " alt="" coords="143,57,100,95,96,91,139,53"/>
+<area shape="rect" id="Node000003" href="$main__runtime_8c.html" title="Runtime init and SDL/Nuklear integration for the Genetic Art demo." alt="" coords="189,93,335,119"/>
+<area shape="poly" id="edge2_Node000001_Node000003" title=" " alt="" coords="206,52,250,91,247,95,203,56"/>
+</map>
